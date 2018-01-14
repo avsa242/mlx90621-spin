@@ -12,7 +12,8 @@ CON
   _clkmode  = cfg#_clkmode
   _xinfreq  = cfg#_xinfreq
 
-  SLAVE           = $50 << 1
+  SLAVE_EE        = $50 << 1
+  SLAVE_SENS      = $60 << 1
   W               = %0
   R               = %1
   EE_SIZE         = 256
@@ -21,7 +22,9 @@ CON
   PAGE            = 0
   SINGLE_LINE     = 1
 
-  WRITE_OSC_TRIM  = $04
+  CMD_WRITE_CFG       = $03
+  CMD_WRITE_OSC_TRIM  = $04
+
 
 OBJ
 
@@ -29,6 +32,7 @@ OBJ
   ser   : "com.serial.terminal"
   time  : "time"
   i2c   : "jm_i2c_fast"
+  debug : "debug"
 
 VAR
 
@@ -69,17 +73,22 @@ PUB Main | check, i
   ser.NewLine
   
   i2c.start
-  check := i2c.write(SLAVE|W)
+  check := i2c.write(SLAVE_EE|W)
   i2c.stop
   if (check == i2c#ACK)
     ser.Str (string("MLX90621 EEPROM found, reading...", ser#NL))
+
 '   3
-    init
+  init
   ser.Str (string("Init finished, press a key to dump data:", ser#NL, ser#NL))
   ser.CharIn
 
-  hexdump(@_ee_data)
-  repeat
+  dump_ee
+  ser.NewLine
+  ser.NewLine
+
+  debug.LEDFast ( cfg#LED2)
+  Write_Cfg ($463E)
 {
   repeat i from 0 to 511
     ser.Hex (_ee_data.byte[i], 2)
@@ -88,119 +97,107 @@ PUB Main | check, i
       ser.NewLine
   repeat
 }
+
+PUB Write_OSCTrim(value) | ackbit, ck, lsb, lsbck, msb, msbck, b
+
+'  b := _ee_data.byte[$F7]
+  b:=value
+  ck := $AA
+  lsb := b.byte[0]
+  msb := b.byte[1]
+  lsbck := (lsb - ck)
+  msbck := (msb - ck)
   
-PUB hexdump(base_ptr) | seg, i, j, cmd, display_mode, pageSize, lines, s, e
+  msg_two(string("b: "), b)
+  msg_one(string("lsb: "), lsb)
+  msg_one(string("msb: "), msb)
+  msg_one(string("lsbck: "), lsbck)
+  msg_one(string("msbck: "), msbck)
 
-  display_mode := PAGE
-  memsize := EE_SIZE-1
-  pageSize := 16
-  lines := 1
-
-  repeat
-    ser.Clear
-    ser.Str (string("SEG        +0  1  2  3   4  5  6  7   8  9  A  B   C  D  E  F       CONTENTS:", ser#NL, {
-                    }"----------------------------------------------------------------------------", ser#NL))
-
-    case display_mode
-      SINGLE_LINE:
-        ser.Hex (base_ptr, 4)                    'Print segment
-        ser.Chars (32, 2)
-
-        repeat j from base_ptr to base_ptr+15         'Print hex value of the 16 memory locations relative to current segment
-          ser.Hex (byte[base_ptr+j], 2)
-          ser.Char (32)
-          if not (j+1) // 4                   'Draw extra space between each long
-            ser.Char (32)
-        ser.Chars (32, 2)
-
-        repeat j from base_ptr to base_ptr+15         'Print the contents of those memory locations
-          case byte[base_ptr+j]
-            32..127:                          'Literally if it's a printable character...
-              ser.Char (byte[base_ptr+j])
-            OTHER:                            '...or a period if it's not
-              ser.Char (".")
-
-        ser.NewLine
-
-      PAGE:
-        s:=cnt
-        repeat seg from base_ptr to base_ptr + memsize-31 step 16'(pageSize-(lines*1))
-          ser.Hex ((seg-base_ptr)+16, 4)
-          ser.Char ("/")
-          ser.Hex (seg, 4)                   'Print segment
-          ser.Chars (32, 2)
-          repeat j from seg to seg + 15       'Print hex value of the 16 memory locations relative to current segment
-            ser.Hex (byte[j], 2)
-            ser.Char (32)
-            if not ((j+1)-seg) // 4           'Draw extra space between each long
-              ser.Char (32)
-          ser.Chars (32, 2)
-
-          repeat j from seg to seg + 15       'Print the contents of those memory locations
-            case byte[j]
-              32..127:                        'Literally if it's a printable character...
-                ser.Char (byte[j])
-              OTHER:                          '...or a period if it's not
-                ser.Char (".")
-          ser.NewLine
-        e:=cnt-s
-        ser.Str (string("Took "))
-        ser.Dec (e)
-        ser.Str (string(" cycles to display", ser#NL))
-        ser.NewLine
-      OTHER:                                  'Default to page mode
-        display_mode := PAGE
-
-    repeat until cmd := ser.CharIn           'Wait for user input
-    case cmd                                  'and decide what to do based on it...
-      8:
-        base_ptr := base_ptr - 16 #> 0
-      13:
-        base_ptr := base_ptr + 16 <# memsize-15
-      "e", "E":
-        base_ptr := memsize-15
-      "s", "S":
-        base_ptr := 0
-      "n", "N", 32:
-        base_ptr := base_ptr + 512 <# memsize-15
-      "p", "P":
-        base_ptr := base_ptr - 512 #> 0
-      "=", "+":
-        base_ptr := base_ptr + 1 <# memsize-15
-      "-", "_":
-        base_ptr := base_ptr - 1 #> 0
-      "c", 16:
-        ser.Clear
-      "1":
-        display_mode := SINGLE_LINE
-      "2":
-        display_mode := PAGE
-      "[":
-        lines := lines + 1 <#32
-      "]":
-        lines := lines - 1 #> 1
-      "{":
-        lines := 32
-      "}":
-        lines := 1
-      "j", "J":
-        ser.Str (string("Jump to (hex)? $"))
-        base_ptr := 0 #> ser.HexIn <# memsize-15
-      OTHER:                                  '...if anything
-
-PUB init | ackbit
-
-  _ee_data.byte[EE_SIZE-2] := $BE
-  _ee_data.byte[EE_SIZE-1] := $EF
+  debug.LEDFast (cfg#LED2)
+  
   i2c.start
-  ackbit := i2c.write (SLAVE|W)
+  i2c.write (SLAVE_EE|W)
+  i2c.write (CMD_WRITE_OSC_TRIM)
+  i2c.write (lsbck)
+  i2c.write (lsb)
+  i2c.write (msbck)
+  i2c.write (msb)
+  i2c.stop
+
+PUB Write_Cfg(val_word) | ackbit, ck, lsb, lsbck, msb, msbck, b
+'' val_word is MSB first
+  b:=val_word
+  ck := $55
+  lsb := b.byte[0]
+  msb := b.byte[1]
+  lsbck := (lsb - ck)
+  msbck := (msb - ck)
+  
+  msg_two(string("b: "), b)
+  msg_one(string("lsb: "), lsb)
+  msg_one(string("msb: "), msb)
+  msg_one(string("lsbck: "), lsbck)
+  msg_one(string("msbck: "), msbck)
+
+  debug.LEDFast (cfg#LED2)
+
+  i2c.start
+  i2c.write (SLAVE_EE|W)
+  i2c.write (CMD_WRITE_CFG)
+  i2c.write (lsbck)
+  i2c.write (lsb)
+  i2c.write (msbck)
+  i2c.write (msb)
+  i2c.stop
+  
+PUB dump_ee | pg, row, val
+
+  pg := 0
+  
+  ser.Chars (" ", 4)
+  repeat val from 0 to 15
+    ser.Hex (val, 2)
+    ser.Char (" ")
+  ser.NewLine
+  ser.NewLine
+  
+  repeat row from 0 to 15
+    ser.Hex (row*$10, 2)
+    ser.Str (string(": "))
+    repeat val from 0 to 15
+      ser.Hex (_ee_data.byte[pg+val], 2)
+      ser.Char (" ")
+    ser.NewLine
+    pg+=16
+
+  
+PUB init | ackbit
+  
+  bytefill (@_ee_data, $00, EE_SIZE)'(s, v, c)
+  _ee_data.byte[EE_SIZE-2] := $BE   'Small identifier to make sure
+  _ee_data.byte[EE_SIZE-1] := $EF   'the data being read is definitely 
+  i2c.start
+  ackbit := i2c.write (SLAVE_EE|W)
   ackbit := i2c.write ($00)
 
   i2c.start
-  ackbit := i2c.write (SLAVE|R)
+  ackbit := i2c.write (SLAVE_EE|R)
   i2c.stop
   ackbit := i2c.pread (@_ee_data, EE_SIZE-1, TRUE)'p_dest, count, ackbit)
   i2c.stop
+
+PRI msg_one(msg, val)
+'' Writes string and one byte-sized value to terminal
+  ser.Str (msg)
+  ser.Hex (val, 2)
+  ser.NewLine
+
+PRI msg_two(msg, val)
+'' Writes string and one byte-sized value to terminal
+  ser.Str (msg)
+  ser.Hex (val, 4)
+  ser.NewLine
   
 DAT
 {
