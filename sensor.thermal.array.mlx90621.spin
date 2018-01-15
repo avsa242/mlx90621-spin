@@ -40,6 +40,9 @@ VAR
   long scl, sda
   long memsize
   byte _osc_trim
+  byte ackbit
+  long _nak
+  long _monitor_ack_stack[100]
 
 PUB Main | check, i
 ''  TASKS:
@@ -61,94 +64,122 @@ PUB Main | check, i
 ''  15 image process/correct
 ''  loop to step 7
 
-''  1 POR, 2
   scl := 8
   sda := 7
 
-  i2c.setupx (scl, sda, EE_CLK)
   ser.Start (115_200)
   ser.Clear
-  ser.Str (string("I2C started - press any key"))
-  ser.CharIn
-  ser.NewLine
-  
+  cognew(monitor_ack, @_monitor_ack_stack)
+
+  i2c.setupx (scl, sda, EE_CLK)
+  time.MSleep (3)
   i2c.start
   check := i2c.write(SLAVE_EE|W)
   i2c.stop
   if (check == i2c#ACK)
     ser.Str (string("MLX90621 EEPROM found, reading...", ser#NL))
+  read_ee
+  
+  i2c.terminate
+  i2c.setupx (scl, sda, THERM_CLK)
 
-'   3
-  init
-  ser.Str (string("Init finished, press a key to dump data:", ser#NL, ser#NL))
-  ser.CharIn
+  Write_OSCTrim ($0010)'(peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
+  ser.NewLine
+  Write_Cfg ($433E)
+  time.MSleep (5)
+  
+  ser.NewLine
+  Read_Cfg
+  Read_OSCTrim
 
   dump_ee
-  ser.NewLine
-  ser.NewLine
 
-  debug.LEDFast ( cfg#LED2)
-  Write_Cfg ($463E)
-{
-  repeat i from 0 to 511
-    ser.Hex (_ee_data.byte[i], 2)
-    ser.Char (" ")
-    ifnot i//16
-      ser.NewLine
-  repeat
-}
+  debug.LEDFast (27)
 
-PUB Write_OSCTrim(value) | ackbit, ck, lsb, lsbck, msb, msbck, b
+PUB Read_Cfg | read_data, cfg_data
 
-'  b := _ee_data.byte[$F7]
-  b:=value
-  ck := $AA
-  lsb := b.byte[0]
-  msb := b.byte[1]
-  lsbck := (lsb - ck)
-  msbck := (msb - ck)
-  
-  msg_two(string("b: "), b)
-  msg_one(string("lsb: "), lsb)
-  msg_one(string("msb: "), msb)
-  msg_one(string("lsbck: "), lsbck)
-  msg_one(string("msbck: "), msbck)
-
-  debug.LEDFast (cfg#LED2)
-  
   i2c.start
-  i2c.write (SLAVE_EE|W)
-  i2c.write (CMD_WRITE_OSC_TRIM)
-  i2c.write (lsbck)
-  i2c.write (lsb)
-  i2c.write (msbck)
-  i2c.write (msb)
+  ackbit := i2c.write (SLAVE_SENS|W)
+  ackbit := i2c.write ($02) 'Command
+  ackbit := i2c.write ($92) 'Start addr
+  ackbit := i2c.write ($00) 'Addr Step
+  ackbit := i2c.write ($01) 'No. reads
+  i2c.start
+  ackbit := i2c.write (SLAVE_SENS|R)
+  i2c.stop
+  
+  i2c.pread (@read_data, 2, TRUE)'p_dest, count, ackbit)
+  i2c.stop
+  
+  cfg_data := (read_data.byte[1] << 8) | read_data.byte[0]
+  msg_four(string("cfg: "), cfg_data)
+
+PUB Read_OSCTrim | read_data, osctrim_data
+
+  i2c.start
+  ackbit := i2c.write (SLAVE_SENS|W)
+  ackbit := i2c.write ($02) 'Command
+  ackbit := i2c.write ($93) 'Start addr
+  ackbit := i2c.write ($00) 'Addr Step
+  ackbit := i2c.write ($01) 'No. reads
+  i2c.start
+  ackbit := i2c.write (SLAVE_SENS|R)
+  i2c.stop
+  
+  i2c.pread (@read_data, 2, TRUE)'p_dest, count, ackbit)
+  i2c.stop
+  
+  osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
+  msg_four(string("osc_trim: "), osctrim_data)
+
+PUB Write_OSCTrim(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
+
+  ck := $AA
+  lsbyte := val_word.byte[0]
+  msbyte := val_word.byte[1]
+  lsbyte_ck := (lsbyte - ck)           'Generate simple checksum values
+  msbyte_ck := (msbyte - ck)           'from least and most significant bytes 
+  
+  msg_two(string("b: "), val_word)
+  msg_one(string("lsbck: "), lsbyte_ck)
+  msg_one(string("lsb: "), lsbyte)
+  msg_one(string("msbck: "), msbyte_ck)
+  msg_one(string("msb: "), msbyte)
+
+  i2c.start
+  ackbit := i2c.write (SLAVE_SENS|W)
+  ackbit := i2c.write (CMD_WRITE_OSC_TRIM)
+  ackbit := i2c.write (lsbyte_ck)
+  ackbit := i2c.write (lsbyte)
+  ackbit := i2c.write (msbyte_ck)
+  ackbit := i2c.write (msbyte)
   i2c.stop
 
-PUB Write_Cfg(val_word) | ackbit, ck, lsb, lsbck, msb, msbck, b
+PUB Write_Cfg(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
 '' val_word is MSB first
-  b:=val_word
   ck := $55
-  lsb := b.byte[0]
-  msb := b.byte[1]
-  lsbck := (lsb - ck)
-  msbck := (msb - ck)
-  
-  msg_two(string("b: "), b)
-  msg_one(string("lsb: "), lsb)
-  msg_one(string("msb: "), msb)
-  msg_one(string("lsbck: "), lsbck)
-  msg_one(string("msbck: "), msbck)
+  lsbyte := val_word.byte[0]
+  msbyte := val_word.byte[1]
+  msbyte |= %0100                       'Bit 10 of the data (i.e., bit 2 of the MSB)
+                                        'is the POR/Brown-Out flag, and MUST be set
+                                        'to indicate the device hasn't been reset
 
-  debug.LEDFast (cfg#LED2)
+  lsbyte_ck := (lsbyte - ck)            'Generate simple checksum values
+  msbyte_ck := (msbyte - ck)            'from least and most significant bytes 
+  
+  msg_two(string("b: "), val_word)
+  msg_one(string("lsbck: "), lsbyte_ck)
+  msg_one(string("lsb: "), lsbyte)
+  msg_one(string("msbck: "), msbyte_ck)
+  msg_one(string("msb | %100: "), msbyte)
 
   i2c.start
-  i2c.write (SLAVE_EE|W)
-  i2c.write (CMD_WRITE_CFG)
-  i2c.write (lsbck)
-  i2c.write (lsb)
-  i2c.write (msbck)
-  i2c.write (msb)
+  ackbit := i2c.write (SLAVE_SENS|W)
+  ackbit := i2c.write (CMD_WRITE_CFG)
+  ackbit := i2c.write (lsbyte_ck)
+  ackbit := i2c.write (lsbyte)
+  ackbit := i2c.write (msbyte_ck)
+  ackbit := i2c.write (msbyte)
   i2c.stop
   
 PUB dump_ee | pg, row, val
@@ -171,22 +202,34 @@ PUB dump_ee | pg, row, val
     ser.NewLine
     pg+=16
 
+PUB peek_ee(location)
+'' Return byte at 'location' in EEPROM memory
+  return _ee_data.byte[location]
   
-PUB init | ackbit
-  
-  bytefill (@_ee_data, $00, EE_SIZE)'(s, v, c)
-  _ee_data.byte[EE_SIZE-2] := $BE   'Small identifier to make sure
-  _ee_data.byte[EE_SIZE-1] := $EF   'the data being read is definitely 
+PUB read_ee
+'' Read EEPROM contents into RAM
+  bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
+
   i2c.start
   ackbit := i2c.write (SLAVE_EE|W)
   ackbit := i2c.write ($00)
 
-  i2c.start
+  i2c.start                           'Read in the EEPROM
   ackbit := i2c.write (SLAVE_EE|R)
   i2c.stop
-  ackbit := i2c.pread (@_ee_data, EE_SIZE-1, TRUE)'p_dest, count, ackbit)
+  ackbit := i2c.pread (@_ee_data, EE_SIZE-1, TRUE)
   i2c.stop
 
+PRI monitor_ack
+'' Trialling this as a background monitor for I2C NAKs
+'' - Intended to run in another cog
+  repeat
+    if ackbit == i2c#NAK
+      _nak++
+      ser.Str (string("NAK - "))
+      ser.Dec (_nak)
+      ackbit := 0
+ 
 PRI msg_one(msg, val)
 '' Writes string and one byte-sized value to terminal
   ser.Str (msg)
@@ -194,10 +237,17 @@ PRI msg_one(msg, val)
   ser.NewLine
 
 PRI msg_two(msg, val)
-'' Writes string and one byte-sized value to terminal
+'' Writes string and two byte/word-sized value to terminal
   ser.Str (msg)
   ser.Hex (val, 4)
   ser.NewLine
+
+PRI msg_four(msg, val)
+'' Writes string and four byte/long-sized value to terminal
+  ser.Str (msg)
+  ser.Hex (val, 8)
+  ser.NewLine
+
   
 DAT
 {
