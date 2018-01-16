@@ -96,7 +96,7 @@ PUB Main | check, i
 
   debug.LEDFast (27)
 
-PUB Read_Cfg | read_data, cfg_data
+PUB Read_Cfg | read_data, cfg_data, por_bit
 
   i2c.start
   ackbit := i2c.write (SLAVE_SENS|W)
@@ -112,7 +112,13 @@ PUB Read_Cfg | read_data, cfg_data
   i2c.stop
   
   cfg_data := (read_data.byte[1] << 8) | read_data.byte[0]
+  por_bit := (cfg_data & %0000_0100_0000_0000) >> 10
   msg_four(string("cfg: "), cfg_data)
+  ser.Str (string("por bit: "))
+  if por_bit
+    ser.Str (string("set", ser#NL))
+  else
+    ser.Str (string("not set", ser#NL))
 
 PUB Read_OSCTrim | read_data, osctrim_data
 
