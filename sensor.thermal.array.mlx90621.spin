@@ -43,6 +43,7 @@ VAR
   byte ackbit
   long _nak
   long _monitor_ack_stack[100]
+  word _ir_frame[64]
 
 PUB Main | check, i
 ''  TASKS:
@@ -85,35 +86,88 @@ PUB Main | check, i
 
   Write_OSCTrim ($0010)'(peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
   ser.NewLine
-  Write_Cfg ($433E)
+  Write_Cfg ($463E)
   time.MSleep (5)
   
   ser.NewLine
   Read_Cfg
   Read_OSCTrim
+  Read_PTAT
+  time.Sleep (1)
 
+  repeat
+    ser.Clear
+    IR_GetWholeFrame
+    time.Sleep (1)
+
+  ser.NewLine
   dump_ee
 
   debug.LEDFast (27)
 
-PUB Read_Cfg | read_data, cfg_data, por_bit
+PRI command (slave_addr, cmd_byte, st_addr, addr_step, nr_reads)
 
   i2c.start
   ackbit := i2c.write (SLAVE_SENS|W)
-  ackbit := i2c.write ($02) 'Command
-  ackbit := i2c.write ($92) 'Start addr
-  ackbit := i2c.write ($00) 'Addr Step
-  ackbit := i2c.write ($01) 'No. reads
+  ackbit := i2c.write (cmd_byte)
+  ackbit := i2c.write (st_addr)
+  ackbit := i2c.write (addr_step)
+  ackbit := i2c.write (nr_reads)
+
+PRI readword: data_word | read_data
+
   i2c.start
   ackbit := i2c.write (SLAVE_SENS|R)
   i2c.stop
+
+  i2c.pread (@read_data, 2, TRUE)
+  i2c.stop
+
+'  ser.Str (string("readword: ")) '
+'  ser.Hex (read_data, 4)         'DEBUG
+'  ser.NewLine                    '
+  data_word := (read_data.byte[1] << 8) | read_data.byte[0]
+
+PUB IR_GetWholeFrame | row, col, offs
+
+  command(SLAVE_SENS|W, $02, $00, $01, $40)
   
-  i2c.pread (@read_data, 2, TRUE)'p_dest, count, ackbit)
+  i2c.start
+  ackbit := i2c.write (SLAVE_SENS|R)
+  i2c.stop
+
+  i2c.pread (@_ir_frame, 64, TRUE)
   i2c.stop
   
+  repeat row from 0 to 3
+    ser.dec(row)
+    ser.Str (string(": "))
+    repeat col from 0 to 15
+      ser.Hex (_ir_frame.word[offs], 4)
+      ser.Char (" ")
+      offs++
+    ser.NewLine
+
+PUB Read_PTAT | read_data, lsbyte, msbyte ' RETURNS $FFFF?
+
+  msbyte := lsbyte := 0
+  command(SLAVE_SENS|W, $02, $40, $00, $01)
+  read_data := readword
+  
+  msbyte := read_data.byte[1]
+  lsbyte := read_data.byte[0]
+  ser.Str (string("PTAT: "))
+  ser.Hex ((msbyte << 8) | lsbyte, 4)
+  ser.NewLine
+
+PUB Read_Cfg | read_data, cfg_data, por_bit
+
+  command(SLAVE_SENS|W, $02, $92, $00, $01)
+  read_data := readword
+
   cfg_data := (read_data.byte[1] << 8) | read_data.byte[0]
-  por_bit := (cfg_data & %0000_0100_0000_0000) >> 10
   msg_four(string("cfg: "), cfg_data)
+  por_bit := (cfg_data & %0000_0100_0000_0000) >> 10        'Check if POR bit (bit 10) is set
   ser.Str (string("por bit: "))
   if por_bit
     ser.Str (string("set", ser#NL))
@@ -122,18 +176,8 @@ PUB Read_Cfg | read_data, cfg_data, por_bit
 
 PUB Read_OSCTrim | read_data, osctrim_data
 
-  i2c.start
-  ackbit := i2c.write (SLAVE_SENS|W)
-  ackbit := i2c.write ($02) 'Command
-  ackbit := i2c.write ($93) 'Start addr
-  ackbit := i2c.write ($00) 'Addr Step
-  ackbit := i2c.write ($01) 'No. reads
-  i2c.start
-  ackbit := i2c.write (SLAVE_SENS|R)
-  i2c.stop
-  
-  i2c.pread (@read_data, 2, TRUE)'p_dest, count, ackbit)
-  i2c.stop
+  command(SLAVE_SENS|W, $02, $93, $00, $01)
+  read_data := readword
   
   osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
   msg_four(string("osc_trim: "), osctrim_data)
