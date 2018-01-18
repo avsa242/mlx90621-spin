@@ -135,17 +135,15 @@ PUB IR_GetWholeFrame | row, col, offs
   i2c.start
   ackbit := i2c.write (SLAVE_SENS|R)
   i2c.stop
-
+  wordfill(@_ir_frame, 0, 64)
   i2c.pread (@_ir_frame, 64, TRUE)
   i2c.stop
-  
+
+  offs := 16
   repeat row from 0 to 3
-    ser.dec(row)
-    ser.Str (string(": "))
     repeat col from 0 to 15
-      ser.Hex (_ir_frame.word[offs], 4)
+      ser.Hex (_ir_frame.word[(row*offs)+col], 4)
       ser.Char (" ")
-      offs++
     ser.NewLine
 
 PUB Read_PTAT | read_data, lsbyte, msbyte ' RETURNS $FFFF?
