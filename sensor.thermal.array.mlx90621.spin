@@ -97,16 +97,17 @@ PUB Main | check, i
 
 '  dump_ee
 '  repeat
+{
   repeat
     Read_PTAT
     time.mSleep (100)
+}
 
-{
   repeat
     ser.Clear
     IR_GetWholeFrame
     time.mSleep (100)
-}
+
   ser.NewLine
   dump_ee
 
@@ -148,7 +149,7 @@ PRI readword: data_word | read_data
 '  ser.NewLine                    '
   data_word := (read_data.byte[1] << 8) | read_data.byte[0]
 
-PUB IR_GetWholeFrame | row, col, offs
+PUB IR_GetWholeFrame | row, col, offs, rawpix
 
   command(SLAVE_SENS|W, $02, $00, $01, $40)
   
@@ -156,13 +157,16 @@ PUB IR_GetWholeFrame | row, col, offs
   ackbit := i2c.write (SLAVE_SENS|R)
   i2c.stop
   wordfill(@_ir_frame, 0, 64)
-  i2c.pread (@_ir_frame, 64, TRUE)
+  i2c.pread (@_ir_frame, 128, TRUE)
   i2c.stop
 
   offs := 16
   repeat row from 0 to 3
     repeat col from 0 to 15
-      ser.Hex (_ir_frame.word[(row*offs)+col], 4)
+      rawpix := _ir_frame.word[(row*offs)+col]
+      if rawpix > 32767
+        rawpix := rawpix - 65536
+      ser.Hex (rawpix, 4)
       ser.Char (" ")
     ser.NewLine
 
