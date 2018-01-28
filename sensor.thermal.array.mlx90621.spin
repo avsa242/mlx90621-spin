@@ -18,7 +18,7 @@ CON
   R               = %1
   EE_SIZE         = 256
   EE_CLK          = 400_000
-  THERM_CLK       = 1_000_000
+  THERM_CLK       = 100_000
   PAGE            = 0
   SINGLE_LINE     = 1
 
@@ -44,6 +44,7 @@ VAR
   long _nak
   long _monitor_ack_stack[100]
   word _ir_frame[64]
+  word _cfg_reg
 
 PUB Main | check, i
 ''  TASKS:
@@ -86,40 +87,59 @@ PUB Main | check, i
 
   Write_OSCTrim ($0010)'(peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
   ser.NewLine
-  Write_Cfg ($463E)
+  Write_Cfg ($4E3B) '463E
   time.MSleep (5)
   
   ser.NewLine
   Read_Cfg
   Read_OSCTrim
-  Read_PTAT
-  time.Sleep (1)
+  ser.CharIn
 
+'  dump_ee
+'  repeat
+  repeat
+    Read_PTAT
+    time.mSleep (100)
+
+{
   repeat
     ser.Clear
     IR_GetWholeFrame
-    time.Sleep (1)
-
+    time.mSleep (100)
+}
   ser.NewLine
   dump_ee
 
   debug.LEDFast (27)
 
-PRI command (slave_addr, cmd_byte, st_addr, addr_step, nr_reads)
+PRI command (slave_addr, cmd_byte, st_addr, addr_step, nr_reads) | cmd_packet[2]
 
+  cmd_packet.byte[0] := slave_addr
+  cmd_packet.byte[1] := cmd_byte
+  cmd_packet.byte[2] := st_addr
+  cmd_packet.byte[3] := addr_step
+  cmd_packet.byte[4] := nr_reads
+  
   i2c.start
-  ackbit := i2c.write (SLAVE_SENS|W)
+  ackbit := i2c.pwrite(@cmd_packet, 5)
+
+{
+  i2c.start
+  ackbit := i2c.write (slave_addr)
   ackbit := i2c.write (cmd_byte)
   ackbit := i2c.write (st_addr)
   ackbit := i2c.write (addr_step)
   ackbit := i2c.write (nr_reads)
-
+}
+ 
 PRI readword: data_word | read_data
 
   i2c.start
   ackbit := i2c.write (SLAVE_SENS|R)
+'  time.USleep (10)
   i2c.stop
-
+  
+'  time.mSleep (1)
   i2c.pread (@read_data, 2, TRUE)
   i2c.stop
 
@@ -146,26 +166,95 @@ PUB IR_GetWholeFrame | row, col, offs
       ser.Char (" ")
     ser.NewLine
 
-PUB Read_PTAT | read_data, lsbyte, msbyte ' RETURNS $FFFF?
+PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h, Kt1_l, Kt2, Kt2_h, Kt2_l, KtScl, VthExp, Scale, Ta
 
+  Scale := 100
   msbyte := lsbyte := 0
   command(SLAVE_SENS|W, $02, $40, $00, $01)
   read_data := readword
   
   msbyte := read_data.byte[1]
   lsbyte := read_data.byte[0]
+  PTAT := ((msbyte << 8) | lsbyte) * Scale
+  
+  ser.NewLine
+  ser.NewLine
   ser.Str (string("PTAT: "))
-  ser.Hex ((msbyte << 8) | lsbyte, 4)
+  ser.dec (PTAT)
+  ser.NewLine
+''  Ta = -Kt1 + sqrt(Kt1^2-4Kt2[Vth(25)-PTAT_data]) / 2Kt2 + 25, degC
+  Vth_h := _ee_data.byte[$DB] '645F
+  Vth_l := _ee_data.byte[$DA]
+  Kt1_h := _ee_data.byte[$DD] '545E
+  Kt1_l := _ee_data.byte[$DC]
+  Kt2_h := _ee_data.byte[$DF] '5EB9 
+  Kt2_l := _ee_data.byte[$DE]
+  KtScl := _ee_data.byte[$D2] '8B
+  VthExp := 3-((_cfg_reg & %0011_0000) >> 4)
+
+'  Vth25 := 256 * Vth_h + Vth_l  'Page 15
+  Vth25 := 25632 'XXX
+  if Vth25 > 32767
+    Vth25 := Vth25 - 65536
+  Vth25 := Vth25/pow(2, VthExp) * Scale
+  ser.Str (string("Vth25 = "))
+  ser.Dec (Vth25)
   ser.NewLine
 
-PUB Read_Cfg | read_data, cfg_data, por_bit
+
+'  Kt1 := 256 * Kt1_h + Kt1_l
+  Kt1 := 21897 'XXX
+  ser.Str (string("Kt1 = "))
+  ser.Dec (Kt1)
+  ser.NewLine
+
+  if Kt1 > 32767
+    Kt1 := Kt1 - 65536
+  Kt1 := (Kt1)/( (pow(2, _ee_data.byte[$D2] >> 4) * pow(2, VthExp)) )*Scale 'Page 15
+  Kt1 := Kt1 + (Kt1 * Scale)//( (pow(2, _ee_data.byte[$D2] >> 4) * pow(2, VthExp)) )
+  ser.Str (string("Kt1(p) = "))
+  ser.Dec (Kt1)
+  ser.NewLine
+
+'  Kt2 := 256 * Kt2_h + Kt2_l
+  Kt2 := 24190 'XXX
+  ser.Str (string("Kt2 = "))
+  ser.Dec (Kt2)
+  ser.NewLine
+
+  if Kt2 > 32767
+    Kt2 := Kt2 - 65536
+
+  Kt2 := (Kt2*Scale)/( (pow(2, (_ee_data.byte[$D2] & $0F) + 10) * pow(2, VthExp)) ){*Scale} 'Page 15
+'  ser.Str (string("EE [$D2] & $F = "))
+'  ser.Hex (_ee_data.byte[$D2] & $f, 2)
+'  ser.NewLine
+
+  ser.Str (string("Kt2(p) = "))
+  ser.Dec (Kt2)
+  ser.NewLine
+
+  ser.Dec (Ta)
+  return Ta := (Kt1 * -1) + ^^(pow(Kt1, 2) - (4 * Kt2) * (Vth25 - PTAT) / (2 * Kt2) ) + 25
+
+PUB pow(a, b) | p
+
+  if b == 0
+    return 1
+  elseif b // 2 == 1
+    return a * pow(a, b - 1)
+  else
+    p := pow(a, b / 2)
+    return p * p
+
+PUB Read_Cfg | read_data, por_bit
 
   command(SLAVE_SENS|W, $02, $92, $00, $01)
   read_data := readword
 
-  cfg_data := (read_data.byte[1] << 8) | read_data.byte[0]
-  msg_four(string("cfg: "), cfg_data)
-  por_bit := (cfg_data & %0000_0100_0000_0000) >> 10        'Check if POR bit (bit 10) is set
+  _cfg_reg := (read_data.byte[1] << 8) | read_data.byte[0]
+  msg_four(string("cfg: "), _cfg_reg)
+  por_bit := (_cfg_reg & %0000_0100_0000_0000) >> 10        'Check if POR bit (bit 10) is set
   ser.Str (string("por bit: "))
   if por_bit
     ser.Str (string("set", ser#NL))
