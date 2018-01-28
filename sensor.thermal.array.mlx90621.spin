@@ -37,26 +37,26 @@ OBJ
 VAR
 
   byte _ee_data[EE_SIZE]
-  long scl, sda
-  long memsize
+  long _scl, _sda
   byte _osc_trim
-  byte ackbit
+  byte _ackbit
   long _nak
   long _monitor_ack_stack[100]
   word _ir_frame[64]
   word _cfg_reg
+  word _comp_pix
 
-PUB Main | check, i
+PUB Start(SCL, SDA, I2C_HZ) | check, i, col, line, rawpix
 ''  TASKS:
 ''C  1 POR (see 8.3)
 ''C  2 wait 5ms
 ''C  3 read eeprom table
 ''  4 store cal coeff in prop RAM
-''  5 write osc trim val into addr $93
-''  6 write cfg val addr $92 (value read from eeprom or hard coded externally)
-''    set POR/brown out flag to 1 (bit 10 at $92
+''C  5 write osc trim val into addr $93
+''C  6 write cfg val addr $92 (value read from eeprom or hard coded externally)
+''C    set POR/brown out flag to 1 (bit 10 at $92
 ''  7 check BO flag. Cleared? Yes: repeat step 3 No: proceed to step 8
-''  8 read meas data (PTAT+desired IR data)
+''C  8 read meas data (PTAT+desired IR data)
 ''  9 Ta calc
 ''  10 pix offset cancelling
 ''  11 therm grad comp
@@ -66,14 +66,32 @@ PUB Main | check, i
 ''  15 image process/correct
 ''  loop to step 7
 
-  scl := 8
-  sda := 7
+  _scl := 8
+  _sda := 7
+
+  Setup
+
+  repeat
+'    GetColumn(0)
+'    Getline (1)
+'    GetPixel (3, 2)
+    GetFrame
+    repeat line from 0 to 3
+      repeat col from 0 to 15
+        ser.Hex (_ir_frame.word[((line*16)+col)], 4)
+        ser.Char (" ")
+      ser.NewLine
+    ser.NewLine
+    time.MSleep (100)
+
+
+PUB Setup | check
 
   ser.Start (115_200)
   ser.Clear
   cognew(monitor_ack, @_monitor_ack_stack)
 
-  i2c.setupx (scl, sda, EE_CLK)
+  i2c.setupx (_scl, _sda, EE_CLK)
   time.MSleep (3)
   i2c.start
   check := i2c.write(SLAVE_EE|W)
@@ -83,7 +101,7 @@ PUB Main | check, i
   read_ee
   
   i2c.terminate
-  i2c.setupx (scl, sda, THERM_CLK)
+  i2c.setupx (_scl, _sda, THERM_CLK)
 
   Write_OSCTrim ($0010)'(peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
   ser.NewLine
@@ -95,23 +113,12 @@ PUB Main | check, i
   Read_OSCTrim
   ser.CharIn
 
-'  dump_ee
-'  repeat
 {
   repeat
     Read_PTAT
     time.mSleep (100)
 }
-
-  repeat
-    ser.Clear
-    IR_GetWholeFrame
-    time.mSleep (100)
-
-  ser.NewLine
-  dump_ee
-
-  debug.LEDFast (27)
+  wordfill(@_ir_frame, 0, 64)
 
 PRI command (slave_addr, cmd_byte, st_addr, addr_step, nr_reads) | cmd_packet[2]
 
@@ -120,55 +127,124 @@ PRI command (slave_addr, cmd_byte, st_addr, addr_step, nr_reads) | cmd_packet[2]
   cmd_packet.byte[2] := st_addr
   cmd_packet.byte[3] := addr_step
   cmd_packet.byte[4] := nr_reads
-  
-  i2c.start
-  ackbit := i2c.pwrite(@cmd_packet, 5)
 
-{
   i2c.start
-  ackbit := i2c.write (slave_addr)
-  ackbit := i2c.write (cmd_byte)
-  ackbit := i2c.write (st_addr)
-  ackbit := i2c.write (addr_step)
-  ackbit := i2c.write (nr_reads)
-}
- 
+  _ackbit := i2c.pwrite(@cmd_packet, 5)
+
 PRI readword: data_word | read_data
 
   i2c.start
-  ackbit := i2c.write (SLAVE_SENS|R)
-'  time.USleep (10)
+  _ackbit := i2c.write (SLAVE_SENS|R)
   i2c.stop
   
-'  time.mSleep (1)
   i2c.pread (@read_data, 2, TRUE)
   i2c.stop
 
-'  ser.Str (string("readword: ")) '
-'  ser.Hex (read_data, 4)         'DEBUG
-'  ser.NewLine                    '
   data_word := (read_data.byte[1] << 8) | read_data.byte[0]
 
-PUB IR_GetWholeFrame | row, col, offs, rawpix
+PUB GetCompPixel | rawpix
 
-  command(SLAVE_SENS|W, $02, $00, $01, $40)
+  command(SLAVE_SENS|W, $02, $41, $00, $01)
   
   i2c.start
-  ackbit := i2c.write (SLAVE_SENS|R)
-  i2c.stop
-  wordfill(@_ir_frame, 0, 64)
-  i2c.pread (@_ir_frame, 128, TRUE)
+  _ackbit := i2c.write (SLAVE_SENS|R)
   i2c.stop
 
+  i2c.pread (@rawpix, 1, TRUE)
+  i2c.stop
+
+  if rawpix > 32767  'Two's-complement
+    rawpix:= rawpix - 65536
+  _comp_pix := rawpix
+  
+PUB GetLine(line) | offs, rawpix[8], col
+
   offs := 16
-  repeat row from 0 to 3
+
+  case line
+    0..3:
+      command(SLAVE_SENS|W, $02, line, $04, $10)
+      
+      i2c.start
+      _ackbit := i2c.write (SLAVE_SENS|R)
+      i2c.stop
+    
+      i2c.pread (@rawpix, 32, TRUE)
+      i2c.stop
+
+      repeat col from 0 to 15
+        if rawpix.word[col] > 32767  'Two's-complement
+          rawpix.word[col] := rawpix.word[col] - 65536
+
+      repeat col from 0 to 15
+        _ir_frame.word[(line * offs) + col] := rawpix.word[col]
+
+    OTHER:
+      return
+
+PUB GetColumn(col) | offs, rawpix[2], line
+
+  offs := 16
+
+  case col
+    0..15:
+      command(SLAVE_SENS|W, $02, col * 4, $01, $04)
+      
+      i2c.start
+      _ackbit := i2c.write (SLAVE_SENS|R)
+      i2c.stop
+    
+      i2c.pread (@rawpix, 8, TRUE)
+      i2c.stop
+
+      repeat line from 0 to 3
+        if rawpix.word[line] > 32767  'Two's-complement
+          rawpix.word[line] := rawpix.word[line] - 65536
+        _ir_frame.word[(line * offs) + col] := rawpix.word[line]
+
+    OTHER:
+      return
+
+PUB GetPixel(col, line): pix | offs, rawpix
+
+  offs := 16
+  
+  if col < 0 or col > 15 or line < 0 or line > 15
+    return
+
+  command(SLAVE_SENS|W, $02, (line * offs) + col, $01, $01)
+
+  i2c.start
+  _ackbit := i2c.write (SLAVE_SENS|R)
+  i2c.stop
+
+  i2c.pread (@rawpix, 2, TRUE)
+  i2c.stop
+
+  if rawpix > 32767  'Two's-complement
+    rawpix := rawpix - 65536
+
+  _ir_frame.word[(line * offs) + col] := rawpix
+
+PUB GetFrame | line, col, offs, rawpix[32], pixel
+
+  offs := 16
+
+  command(SLAVE_SENS|W, $02, $00, $01, $40)
+
+  i2c.start
+  _ackbit := i2c.write (SLAVE_SENS|R)
+  i2c.stop
+
+  i2c.pread (@rawpix, 128, TRUE)
+  i2c.stop
+
+  repeat line from 0 to 3
     repeat col from 0 to 15
-      rawpix := _ir_frame.word[(row*offs)+col]
-      if rawpix > 32767
-        rawpix := rawpix - 65536
-      ser.Hex (rawpix, 4)
-      ser.Char (" ")
-    ser.NewLine
+      pixel := (line * offs) + col
+      if rawpix.word[pixel] > 32767  'Two's-complement
+        rawpix.word[pixel] := rawpix.word[pixel] - 65536
+      _ir_frame.word[pixel] := rawpix.word[pixel]
 
 PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h, Kt1_l, Kt2, Kt2_h, Kt2_l, KtScl, VthExp, Scale, Ta
 
@@ -288,12 +364,12 @@ PUB Write_OSCTrim(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
   msg_one(string("msb: "), msbyte)
 
   i2c.start
-  ackbit := i2c.write (SLAVE_SENS|W)
-  ackbit := i2c.write (CMD_WRITE_OSC_TRIM)
-  ackbit := i2c.write (lsbyte_ck)
-  ackbit := i2c.write (lsbyte)
-  ackbit := i2c.write (msbyte_ck)
-  ackbit := i2c.write (msbyte)
+  _ackbit := i2c.write (SLAVE_SENS|W)
+  _ackbit := i2c.write (CMD_WRITE_OSC_TRIM)
+  _ackbit := i2c.write (lsbyte_ck)
+  _ackbit := i2c.write (lsbyte)
+  _ackbit := i2c.write (msbyte_ck)
+  _ackbit := i2c.write (msbyte)
   i2c.stop
 
 PUB Write_Cfg(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
@@ -315,12 +391,12 @@ PUB Write_Cfg(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
   msg_one(string("msb | %100: "), msbyte)
 
   i2c.start
-  ackbit := i2c.write (SLAVE_SENS|W)
-  ackbit := i2c.write (CMD_WRITE_CFG)
-  ackbit := i2c.write (lsbyte_ck)
-  ackbit := i2c.write (lsbyte)
-  ackbit := i2c.write (msbyte_ck)
-  ackbit := i2c.write (msbyte)
+  _ackbit := i2c.write (SLAVE_SENS|W)
+  _ackbit := i2c.write (CMD_WRITE_CFG)
+  _ackbit := i2c.write (lsbyte_ck)
+  _ackbit := i2c.write (lsbyte)
+  _ackbit := i2c.write (msbyte_ck)
+  _ackbit := i2c.write (msbyte)
   i2c.stop
   
 PUB dump_ee | pg, row, val
@@ -352,24 +428,24 @@ PUB read_ee
   bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
 
   i2c.start
-  ackbit := i2c.write (SLAVE_EE|W)
-  ackbit := i2c.write ($00)
+  _ackbit := i2c.write (SLAVE_EE|W)
+  _ackbit := i2c.write ($00)
 
   i2c.start                           'Read in the EEPROM
-  ackbit := i2c.write (SLAVE_EE|R)
+  _ackbit := i2c.write (SLAVE_EE|R)
   i2c.stop
-  ackbit := i2c.pread (@_ee_data, EE_SIZE-1, TRUE)
+  _ackbit := i2c.pread (@_ee_data, EE_SIZE-1, TRUE)
   i2c.stop
 
 PRI monitor_ack
 '' Trialling this as a background monitor for I2C NAKs
 '' - Intended to run in another cog
   repeat
-    if ackbit == i2c#NAK
+    if _ackbit == i2c#NAK
       _nak++
       ser.Str (string("NAK - "))
       ser.Dec (_nak)
-      ackbit := 0
+      _ackbit := 0
  
 PRI msg_one(msg, val)
 '' Writes string and one byte-sized value to terminal
