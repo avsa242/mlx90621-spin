@@ -18,7 +18,7 @@ CON
   R               = %1
   EE_SIZE         = 256
   EE_CLK          = 400_000
-  THERM_CLK       = 100_000
+  THERM_CLK       = 400_000
   PAGE            = 0
   SINGLE_LINE     = 1
 
@@ -33,6 +33,7 @@ OBJ
   time  : "time"
   i2c   : "jm_i2c_fast"
   debug : "debug"
+  oled  : "display.oled96"
 
 VAR
 
@@ -45,8 +46,9 @@ VAR
   word _ir_frame[64]
   word _cfg_reg
   word _comp_pix
+  long _drawframe_stack[100]
 
-PUB Start(SCL, SDA, I2C_HZ) | check, i, col, line, rawpix
+PUB Start(SCL, SDA, I2C_HZ): okay | check, i, j, k, col, line, rawpix[32], sx, sy, width, height, ptr_col[2], ptr_line[8]
 ''  TASKS:
 ''C  1 POR (see 8.3)
 ''C  2 wait 5ms
@@ -69,39 +71,56 @@ PUB Start(SCL, SDA, I2C_HZ) | check, i, col, line, rawpix
   _scl := 8
   _sda := 7
 
-  Setup
-
-  repeat
-'    GetColumn(0)
-'    Getline (1)
-'    GetPixel (3, 2)
-    GetFrame
-    repeat line from 0 to 3
-      repeat col from 0 to 15
-        ser.Hex (_ir_frame.word[((line*16)+col)], 4)
-        ser.Char (" ")
-      ser.NewLine
-    ser.NewLine
-    time.MSleep (100)
-
-
-PUB Setup | check
-
-  ser.Start (115_200)
-  ser.Clear
-  cognew(monitor_ack, @_monitor_ack_stack)
-
   i2c.setupx (_scl, _sda, EE_CLK)
   time.MSleep (3)
   i2c.start
   check := i2c.write(SLAVE_EE|W)
   i2c.stop
   if (check == i2c#ACK)
-    ser.Str (string("MLX90621 EEPROM found, reading...", ser#NL))
-  read_ee
-  
+    read_ee
+  else
+    return -1
+
   i2c.terminate
-  i2c.setupx (_scl, _sda, THERM_CLK)
+  okay := i2c.setupx (_scl, _sda, THERM_CLK)
+
+  Setup
+  wordfill(@_ir_frame, 0, 64)
+
+  cognew(DrawFrame, @_drawframe_stack)
+  ser.Clear
+
+  wordfill(@_ir_frame, 0, 64)
+
+  repeat
+'    GetPixel (4, 1)
+
+'    repeat i from 0 to 15
+'      GetColumn (i, @_ir_frame)
+
+'    repeat i from 0 to 15
+'      GetColumn (i, @_ir_frame)
+
+    GetFrame(@_ir_frame)
+
+PUB DrawFrame | col, line, k, sx, sy, width, height
+
+  sx := 7
+  sy := 5
+  width := 4
+  height := 4
+
+  repeat
+    repeat line from 0 to 3
+      repeat col from 0 to 15
+        k := (col * 4) + line
+        oled.box((col * 5) + sx, line * 5, (col * 5) + sx + width, (line * 5) + height, _ir_frame.word[k], _ir_frame.word[k])
+'        oled.PlotPoint (col + sx, line + sy, _ir_frame.word[k], _ir_frame.word[k])
+
+PUB Setup | check, cs, rst, dc, clk, data
+
+  ser.Start (115_200)
+  ser.Clear
 
   Write_OSCTrim ($0010)'(peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
   ser.NewLine
@@ -111,7 +130,24 @@ PUB Setup | check
   ser.NewLine
   Read_Cfg
   Read_OSCTrim
-  ser.CharIn
+'  ser.CharIn
+
+  CS    := 2
+  RST   := 4
+  DC    := 3
+  CLK   := 1
+  DATA  := 0
+
+  OLED.Init(CS,DC,DATA,CLK,RST)
+
+  OLED.clearDisplay
+  OLED.AutoUpdateOn
+
+
+  OLED.clearDisplay
+
+  oled.boxFillOn
+
 
 {
   repeat
@@ -155,16 +191,14 @@ PUB GetCompPixel | rawpix
 
   if rawpix > 32767  'Two's-complement
     rawpix:= rawpix - 65536
-  _comp_pix := rawpix
+  return _comp_pix := rawpix
   
-PUB GetLine(line) | offs, rawpix[8], col
-
-  offs := 16
+PUB GetLine(line, ptr_line) | rawpix[8], col, pixel
 
   case line
     0..3:
-      command(SLAVE_SENS|W, $02, line, $04, $10)
-      
+      command(SLAVE_SENS|W, $02, line, 4, 16)
+
       i2c.start
       _ackbit := i2c.write (SLAVE_SENS|R)
       i2c.stop
@@ -173,46 +207,42 @@ PUB GetLine(line) | offs, rawpix[8], col
       i2c.stop
 
       repeat col from 0 to 15
+        pixel := (col * 4) + line
         if rawpix.word[col] > 32767  'Two's-complement
           rawpix.word[col] := rawpix.word[col] - 65536
-
-      repeat col from 0 to 15
-        _ir_frame.word[(line * offs) + col] := rawpix.word[col]
+        word[ptr_line][pixel] := rawpix.word[col]
 
     OTHER:
       return
 
-PUB GetColumn(col) | offs, rawpix[2], line
-
-  offs := 16
+PUB GetColumn(col, ptr_col) | rawpix[2], line, pixel
 
   case col
     0..15:
-      command(SLAVE_SENS|W, $02, col * 4, $01, $04)
-      
+      command(SLAVE_SENS|W, $02, col * 4, 1, 4)
+
       i2c.start
       _ackbit := i2c.write (SLAVE_SENS|R)
       i2c.stop
-    
+
       i2c.pread (@rawpix, 8, TRUE)
       i2c.stop
 
       repeat line from 0 to 3
+        pixel := (col * 4) + line
         if rawpix.word[line] > 32767  'Two's-complement
           rawpix.word[line] := rawpix.word[line] - 65536
-        _ir_frame.word[(line * offs) + col] := rawpix.word[line]
+        word[ptr_col][pixel] := rawpix.word[line]
 
     OTHER:
       return
 
-PUB GetPixel(col, line): pix | offs, rawpix
+PUB GetPixel(col, line) | rawpix, pixel
 
-  offs := 16
-  
   if col < 0 or col > 15 or line < 0 or line > 15
     return
 
-  command(SLAVE_SENS|W, $02, (line * offs) + col, $01, $01)
+  command(SLAVE_SENS|W, $02, (col * 4) + line, $00, $01)
 
   i2c.start
   _ackbit := i2c.write (SLAVE_SENS|R)
@@ -221,14 +251,15 @@ PUB GetPixel(col, line): pix | offs, rawpix
   i2c.pread (@rawpix, 2, TRUE)
   i2c.stop
 
-  if rawpix > 32767  'Two's-complement
+  pixel := (col * 4) + line 'Compute offset location in array of current pixel
+  if rawpix > 32767         'Two's-complement
     rawpix := rawpix - 65536
 
-  _ir_frame.word[(line * offs) + col] := rawpix
+  return _ir_frame.word[pixel] := rawpix
 
-PUB GetFrame | line, col, offs, rawpix[32], pixel
-
-  offs := 16
+PUB GetFrame(ptr_frame) | line, col, rawpix[32], pixel
+'' Gets frame from sensor and stores it in buffer at ptr_frame
+'' This buffer must be 32 longs/64 words
 
   command(SLAVE_SENS|W, $02, $00, $01, $40)
 
@@ -241,10 +272,10 @@ PUB GetFrame | line, col, offs, rawpix[32], pixel
 
   repeat line from 0 to 3
     repeat col from 0 to 15
-      pixel := (line * offs) + col
-      if rawpix.word[pixel] > 32767  'Two's-complement
+      pixel := (col * 4) + line'(line * offs) + col    'Compute offset location in array of current pixel
+      if rawpix.word[pixel] > 32767   'Two's-complement
         rawpix.word[pixel] := rawpix.word[pixel] - 65536
-      _ir_frame.word[pixel] := rawpix.word[pixel]
+      word[ptr_frame][pixel] := rawpix.word[pixel]
 
 PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h, Kt1_l, Kt2, Kt2_h, Kt2_l, KtScl, VthExp, Scale, Ta
 
@@ -272,8 +303,7 @@ PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h
   KtScl := _ee_data.byte[$D2] '8B
   VthExp := 3-((_cfg_reg & %0011_0000) >> 4)
 
-'  Vth25 := 256 * Vth_h + Vth_l  'Page 15
-  Vth25 := 25632 'XXX
+  Vth25 := 256 * Vth_h + Vth_l  'Page 15
   if Vth25 > 32767
     Vth25 := Vth25 - 65536
   Vth25 := Vth25/pow(2, VthExp) * Scale
@@ -281,9 +311,7 @@ PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h
   ser.Dec (Vth25)
   ser.NewLine
 
-
-'  Kt1 := 256 * Kt1_h + Kt1_l
-  Kt1 := 21897 'XXX
+  Kt1 := 256 * Kt1_h + Kt1_l
   ser.Str (string("Kt1 = "))
   ser.Dec (Kt1)
   ser.NewLine
@@ -296,8 +324,7 @@ PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h
   ser.Dec (Kt1)
   ser.NewLine
 
-'  Kt2 := 256 * Kt2_h + Kt2_l
-  Kt2 := 24190 'XXX
+  Kt2 := 256 * Kt2_h + Kt2_l
   ser.Str (string("Kt2 = "))
   ser.Dec (Kt2)
   ser.NewLine
@@ -306,16 +333,14 @@ PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h
     Kt2 := Kt2 - 65536
 
   Kt2 := (Kt2*Scale)/( (pow(2, (_ee_data.byte[$D2] & $0F) + 10) * pow(2, VthExp)) ){*Scale} 'Page 15
-'  ser.Str (string("EE [$D2] & $F = "))
-'  ser.Hex (_ee_data.byte[$D2] & $f, 2)
-'  ser.NewLine
 
   ser.Str (string("Kt2(p) = "))
   ser.Dec (Kt2)
   ser.NewLine
 
-  ser.Dec (Ta)
-  return Ta := (Kt1 * -1) + ^^(pow(Kt1, 2) - (4 * Kt2) * (Vth25 - PTAT) / (2 * Kt2) ) + 25
+'  ser.Dec (Ta)
+  ser.Dec (Ta := (Kt1 * -1) + ^^(pow(Kt1, 2) - (4 * Kt2) * (Vth25 - PTAT) / (2 * Kt2) ) + 25)
+  return Ta
 
 PUB pow(a, b) | p
 
