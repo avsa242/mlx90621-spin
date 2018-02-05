@@ -18,7 +18,7 @@ CON
   R               = %1
   EE_SIZE         = 256
   EE_CLK          = 400_000
-  THERM_CLK       = 400_000
+  THERM_CLK       = 100_000
   PAGE            = 0
   SINGLE_LINE     = 1
 
@@ -48,19 +48,22 @@ VAR
   word _comp_pix
   long _drawframe_stack[100]
 
+  byte _adc_res
+  word _Vir_comp
+
 PUB Start(SCL, SDA, I2C_HZ): okay | check, i, j, k, col, line, rawpix[32], sx, sy, width, height, ptr_col[2], ptr_line[8]
 ''  TASKS:
 ''C  1 POR (see 8.3)
 ''C  2 wait 5ms
 ''C  3 read eeprom table
-''  4 store cal coeff in prop RAM
+''W  4 store cal coeff in prop RAM
 ''C  5 write osc trim val into addr $93
 ''C  6 write cfg val addr $92 (value read from eeprom or hard coded externally)
 ''C    set POR/brown out flag to 1 (bit 10 at $92
 ''  7 check BO flag. Cleared? Yes: repeat step 3 No: proceed to step 8
-''C  8 read meas data (PTAT+desired IR data)
-''  9 Ta calc
-''  10 pix offset cancelling
+''W  8 read meas data (PTAT+desired IR data)
+''W  9 Ta calc
+''W  10 pix offset cancelling
 ''  11 therm grad comp
 ''  12 pix<->pix normalization
 ''  13 obj emissivity comp
@@ -87,12 +90,30 @@ PUB Start(SCL, SDA, I2C_HZ): okay | check, i, j, k, col, line, rawpix[32], sx, s
   Setup
   wordfill(@_ir_frame, 0, 64)
 
-  cognew(DrawFrame, @_drawframe_stack)
+ cognew(DrawFrame, @_drawframe_stack)
   ser.Clear
 
-  wordfill(@_ir_frame, 0, 64)
+'  wordfill(@_ir_frame, 0, 64)
+  col := 0
+  line := 0
+  Read_PTAT
 
   repeat
+{    ser.Str (string("Ta: "))
+    ser.Dec (Read_PTAT)
+    ser.NewLine
+'    Read_PTAT
+    check := calc_pixOffsetCompensation (col, line)
+    ser.NewLine
+    ser.Str (string("To of "))
+    ser.Dec (line)
+    ser.Char (",")
+    ser.Dec (col)
+    ser.Str (string(": "))
+    ser.Dec (check)
+    ser.NewLine
+    ser.NewLine
+    time.MSleep (250)}
 '    GetPixel (4, 1)
 
 '    repeat i from 0 to 15
@@ -149,12 +170,10 @@ PUB Setup | check, cs, rst, dc, clk, data
   oled.boxFillOn
 
 
-{
-  repeat
-    Read_PTAT
-    time.mSleep (100)
-}
+  cognew(monitor_ack, @_monitor_ack_stack)
   wordfill(@_ir_frame, 0, 64)
+  _adc_res := 3-((_cfg_reg & %0011_0000) >> 4)
+
 
 PRI command (slave_addr, cmd_byte, st_addr, addr_step, nr_reads) | cmd_packet[2]
 
@@ -166,6 +185,7 @@ PRI command (slave_addr, cmd_byte, st_addr, addr_step, nr_reads) | cmd_packet[2]
 
   i2c.start
   _ackbit := i2c.pwrite(@cmd_packet, 5)
+'  i2c.stop
 
 PRI readword: data_word | read_data
 
@@ -173,6 +193,7 @@ PRI readword: data_word | read_data
   _ackbit := i2c.write (SLAVE_SENS|R)
   i2c.stop
   
+  i2c.start
   i2c.pread (@read_data, 2, TRUE)
   i2c.stop
 
@@ -246,7 +267,7 @@ PUB GetPixel(col, line) | rawpix, pixel
 
   i2c.start
   _ackbit := i2c.write (SLAVE_SENS|R)
-  i2c.stop
+'  i2c.stop
 
   i2c.pread (@rawpix, 2, TRUE)
   i2c.stop
@@ -263,9 +284,10 @@ PUB GetFrame(ptr_frame) | line, col, rawpix[32], pixel
 
   command(SLAVE_SENS|W, $02, $00, $01, $40)
 
+
   i2c.start
   _ackbit := i2c.write (SLAVE_SENS|R)
-  i2c.stop
+'  i2c.stop
 
   i2c.pread (@rawpix, 128, TRUE)
   i2c.stop
@@ -277,22 +299,34 @@ PUB GetFrame(ptr_frame) | line, col, rawpix[32], pixel
         rawpix.word[pixel] := rawpix.word[pixel] - 65536
       word[ptr_frame][pixel] := rawpix.word[pixel]
 
-PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h, Kt1_l, Kt2, Kt2_h, Kt2_l, KtScl, VthExp, Scale, Ta
+PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h, Kt1_l, Kt1_Scl, Kt2, Kt2_h, Kt2_l, Kt2_Scl, KtScl, Scale, Ta, cmd_packet
 
   Scale := 100
   msbyte := lsbyte := 0
-  command(SLAVE_SENS|W, $02, $40, $00, $01)
-  read_data := readword
-  
-  msbyte := read_data.byte[1]
-  lsbyte := read_data.byte[0]
-  PTAT := ((msbyte << 8) | lsbyte) * Scale
-  
+'  command(SLAVE_SENS|W, $02, $40, 0, 1)
+'  read_data := readword
+
+  cmd_packet.byte[0] := SLAVE_SENS|W
+  cmd_packet.byte[1] := $02
+  cmd_packet.byte[2] := $40
+  cmd_packet.byte[3] := 0
+  cmd_packet.byte[4] := 1
+
+  i2c.start
+  _ackbit := i2c.pwrite(@cmd_packet, 5)
+
+  i2c.start
+  _ackbit := i2c.write (SLAVE_SENS|R)
+
+  i2c.pread (@read_data, 2, TRUE)
+  i2c.stop
+
+  PTAT := u16(read_data.byte[1], read_data.byte[0]) * Scale
+{  ser.NewLine
   ser.NewLine
-  ser.NewLine
-  ser.Str (string("PTAT: "))
+  ser.Str (string("u16 PTAT: "))
   ser.dec (PTAT)
-  ser.NewLine
+  ser.NewLine}
 ''  Ta = -Kt1 + sqrt(Kt1^2-4Kt2[Vth(25)-PTAT_data]) / 2Kt2 + 25, degC
   Vth_h := _ee_data.byte[$DB] '645F
   Vth_l := _ee_data.byte[$DA]
@@ -300,47 +334,83 @@ PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h
   Kt1_l := _ee_data.byte[$DC]
   Kt2_h := _ee_data.byte[$DF] '5EB9 
   Kt2_l := _ee_data.byte[$DE]
-  KtScl := _ee_data.byte[$D2] '8B
-  VthExp := 3-((_cfg_reg & %0011_0000) >> 4)
+  Kt1_Scl := _ee_data.byte[$D2] >> 4 '8B
+  Kt2_Scl := _ee_data.byte[$D2] & $0F
 
-  Vth25 := 256 * Vth_h + Vth_l  'Page 15
-  if Vth25 > 32767
-    Vth25 := Vth25 - 65536
-  Vth25 := Vth25/pow(2, VthExp) * Scale
-  ser.Str (string("Vth25 = "))
+  Vth25 := s16(Vth_h, Vth_l)
+  Vth25 := Vth25/pow(2, _adc_res) * Scale
+{  ser.Str (string("Vth25 = "))
   ser.Dec (Vth25)
-  ser.NewLine
+  ser.NewLine}
 
-  Kt1 := 256 * Kt1_h + Kt1_l
-  ser.Str (string("Kt1 = "))
+  Kt1 := s16(Kt1_h, Kt1_l)
+{  ser.Str (string("Kt1 = "))
   ser.Dec (Kt1)
-  ser.NewLine
+  ser.NewLine}
 
-  if Kt1 > 32767
-    Kt1 := Kt1 - 65536
-  Kt1 := (Kt1)/( (pow(2, _ee_data.byte[$D2] >> 4) * pow(2, VthExp)) )*Scale 'Page 15
-  Kt1 := Kt1 + (Kt1 * Scale)//( (pow(2, _ee_data.byte[$D2] >> 4) * pow(2, VthExp)) )
-  ser.Str (string("Kt1(p) = "))
+  Kt1 := (Kt1)/( (pow(2, Kt1_Scl) * pow(2, _adc_res)) )*Scale 'Whole part
+'  Kt1 := Kt1 + (Kt1 * Scale)//( (pow(2, _ee_data.byte[$D2] >> 4) * pow(2, _adc_res)) ) 'Fractional part
+{  ser.Str (string("Kt1(p) = "))
   ser.Dec (Kt1)
-  ser.NewLine
+  ser.NewLine}
 
-  Kt2 := 256 * Kt2_h + Kt2_l
-  ser.Str (string("Kt2 = "))
+  Kt2 := s16(Kt2_h, Kt2_l)
+{  ser.Str (string("Kt2 = "))
+  ser.Dec (Kt2)
+  ser.NewLine}
+
+  Kt2 := (Kt2*Scale)/( (pow(2, (Kt2_Scl) + 10) * pow(2, _adc_res)) ){*Scale} 'Page 15
+
+{  ser.Str (string("Kt2(p) = "))
   ser.Dec (Kt2)
   ser.NewLine
 
-  if Kt2 > 32767
-    Kt2 := Kt2 - 65536
-
-  Kt2 := (Kt2*Scale)/( (pow(2, (_ee_data.byte[$D2] & $0F) + 10) * pow(2, VthExp)) ){*Scale} 'Page 15
-
-  ser.Str (string("Kt2(p) = "))
-  ser.Dec (Kt2)
-  ser.NewLine
-
-'  ser.Dec (Ta)
-  ser.Dec (Ta := (Kt1 * -1) + ^^(pow(Kt1, 2) - (4 * Kt2) * (Vth25 - PTAT) / (2 * Kt2) ) + 25)
+'  ser.Dec (Ta)}
+  Ta := (Kt1 * -1) + ^^(pow(Kt1, 2) - (4 * Kt2) * (Vth25 - PTAT) / (2 * Kt2) ) + 25
   return Ta
+
+PUB calc_pixOffsetCompensation(col, line) | Ai, Ai_del, Ai_scl, A_com, Bi, Bi_scl, Acp, Bcp, Vir
+
+  Vir := GetPixel (col, line)
+
+  A_com := s16(_ee_data.byte[$D1], _ee_data.byte[$D0])
+  Ai_del := (_ee_data.byte[$00 + (col * 4) + line])
+  Ai_scl := (_ee_data.byte[$D9] & $F0)
+  Ai := (A_com + Ai_del * pow(2, Ai_scl)) / pow (2, _adc_res)
+
+  ser.Str (string("s16 A_com: "))
+  ser.Dec (A_com)
+  ser.NewLine
+  ser.Str (string("u8 Ai_del: "))
+  ser.Dec (Ai_del)
+  ser.NewLine
+  ser.Str (string("u8 Ai_scl: "))
+  ser.Dec (Ai_scl)
+  ser.NewLine
+  ser.Str (string("s16 Ai: "))
+  ser.Dec (Ai)
+
+  Bi := s8(_ee_data.byte[$40 + (col * 4) + line])
+  Bi_scl := (_ee_data.byte[$D9] & $0F)
+  _Vir_comp := Vir - (Ai + Bi * (Read_PTAT - 25))
+  return _Vir_comp
+
+PUB calc_comppixOffsetCompensation(col, line) | Ai, Ai_del, Ai_scl, A_com, Bi, Bi_scl, Acp, Bcp, Vir
+
+  Vir := GetCompPixel
+
+  A_com := (_ee_data.byte[$D1] << 4) | _ee_data.byte[$D0]
+  Ai_del := (_ee_data.byte[$00 + (col * 4) + line])
+  Ai_scl := (_ee_data.byte[$D9] & $F0)
+  Ai := (A_com + Ai_del * (2 * Ai_scl)) / pow (2, _adc_res)
+
+  Bi := _ee_data.byte[$40 + (col * 4) + line]
+  Bi_scl := (_ee_data.byte[$D9] & $0F)
+  _Vir_comp := Vir - (Ai + Bi * (Read_PTAT - 25))
+  return _Vir_comp
+
+PUB calc_ThermalGradientCompensation
+
 
 PUB pow(a, b) | p
 
@@ -468,7 +538,7 @@ PRI monitor_ack
   repeat
     if _ackbit == i2c#NAK
       _nak++
-      ser.Str (string("NAK - "))
+      ser.Str (string("*** NAK - "))
       ser.Dec (_nak)
       _ackbit := 0
  
@@ -490,7 +560,23 @@ PRI msg_four(msg, val)
   ser.Hex (val, 8)
   ser.NewLine
 
-  
+PRI s16(ms_byte, ls_byte) | tmp_word
+
+  tmp_word := (ms_byte << 8) | ls_byte
+  if tmp_word > 32767
+    tmp_word := tmp_word - 65536
+  return tmp_word
+
+PRI u16(ms_byte, ls_byte)
+
+  return ((ms_byte << 8) | ls_byte)
+
+PRI s8(byte_val)
+
+  if byte_val > 127
+    byte_val := byte_val - 128
+  return byte_val
+
 DAT
 {
     --------------------------------------------------------------------------------------------------------
