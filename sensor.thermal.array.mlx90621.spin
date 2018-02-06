@@ -90,7 +90,7 @@ PUB Start(SCL, SDA, I2C_HZ): okay | check, i, j, k, col, line, rawpix[32], sx, s
   Setup
   wordfill(@_ir_frame, 0, 64)
 
- cognew(DrawFrame, @_drawframe_stack)
+  cognew(DrawFrame, @_drawframe_stack)
   ser.Clear
 
 '  wordfill(@_ir_frame, 0, 64)
@@ -281,7 +281,7 @@ PUB GetPixel(col, line) | rawpix, pixel
 PUB GetFrame(ptr_frame) | line, col, rawpix[32], pixel
 '' Gets frame from sensor and stores it in buffer at ptr_frame
 '' This buffer must be 32 longs/64 words
-
+{
   command(SLAVE_SENS|W, $02, $00, $01, $40)
 
 
@@ -291,7 +291,8 @@ PUB GetFrame(ptr_frame) | line, col, rawpix[32], pixel
 
   i2c.pread (@rawpix, 128, TRUE)
   i2c.stop
-
+}
+  readData (@rawpix, $00, 1, 64)
   repeat line from 0 to 3
     repeat col from 0 to 15
       pixel := (col * 4) + line'(line * offs) + col    'Compute offset location in array of current pixel
@@ -299,13 +300,30 @@ PUB GetFrame(ptr_frame) | line, col, rawpix[32], pixel
         rawpix.word[pixel] := rawpix.word[pixel] - 65536
       word[ptr_frame][pixel] := rawpix.word[pixel]
 
+PUB readData(buff_ptr, start_addr, addr_step, word_count) | cmd_packet, raw_data
+
+  cmd_packet.byte[0] := SLAVE_SENS|W
+  cmd_packet.byte[1] := $02
+  cmd_packet.byte[2] := start_addr
+  cmd_packet.byte[3] := addr_step
+  cmd_packet.byte[4] := word_count
+
+  i2c.start
+  _ackbit := i2c.pwrite(@cmd_packet, 5)
+
+  i2c.start
+  _ackbit := i2c.write (SLAVE_SENS|R)
+
+  i2c.pread (buff_ptr, word_count * 2, TRUE)
+  i2c.stop
+
 PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h, Kt1_l, Kt1_Scl, Kt2, Kt2_h, Kt2_l, Kt2_Scl, KtScl, Scale, Ta, cmd_packet
 
   Scale := 100
   msbyte := lsbyte := 0
 '  command(SLAVE_SENS|W, $02, $40, 0, 1)
 '  read_data := readword
-
+{
   cmd_packet.byte[0] := SLAVE_SENS|W
   cmd_packet.byte[1] := $02
   cmd_packet.byte[2] := $40
@@ -320,7 +338,8 @@ PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h
 
   i2c.pread (@read_data, 2, TRUE)
   i2c.stop
-
+}
+  readData (@read_data, $40, 0, 1)
   PTAT := u16(read_data.byte[1], read_data.byte[0]) * Scale
 {  ser.NewLine
   ser.NewLine
