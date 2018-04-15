@@ -24,56 +24,80 @@ OBJ
   cfg   : "core.con.client.activityboard"
   ser   : "com.serial.terminal"
   time  : "time"
-  therm : "sensor.thermal.array.mlx90621"
   oled  : "display.oled96"
-  debug : "debug"
-  
+
 VAR
 
-  long _drawframe_stack[100]
-  word _ir_frame[64]
+  long a, b, c, d
+  long MinTemp, MaxTemp
+  long val
 
 PUB Main
 
-  Setup
-
-  wordfill(@_ir_frame, 0, 64)
-
-
-  repeat
-    therm.GetFrame (@_ir_frame)
-
-PUB DrawFrame | col, line, k, sx, sy, width, height, color
-
-  sx := 7
-  sy := 5
-  width := 4
-  height := 4
-
-  repeat
-    repeat line from 0 to 3
-      repeat col from 0 to 15
-        k := (col * 4) + line
-        color := (65535-_ir_frame.word[k])
-        oled.box((col * 5) + sx, line * 5, (col * 5) + sx + width, (line * 5) + height, color, color)
-'        oled.PlotPoint (col + sx, line + sy, _ir_frame.word[k], _ir_frame.word[k])
-
-PUB Setup
-
   ser.Start (115_200)
-  ser.Clear
+  
 
-  oled.Init(CS, DC, DATA, CLK, RST)
-  oled.clearDisplay
-  oled.AutoUpdateOn
-  oled.clearDisplay
-  oled.boxFillOn
-  cognew(DrawFrame, @_drawframe_stack)
+PUB GetColor | red, green, blue
 
-  therm.Start (8, 7, 400_000)
+{
+    pass in value and figure out R G B
+    several published ways to do this I basically graphed R G B and developed simple linear equations
+    again a 5-6-5 color display will not need accurate temp to R G B color calculation
 
-'  debug.LEDFast (26)
+    equations based on
+    http://web-tech.ga-usa.com/2012/05/creating-a-custom-hot-to-cold-temperature-color-gradient-for-use-with-rrdtool/index.html
 
+}
+
+  red := constrain(255 / (c - b) * val - ((b * 255) / (c - b)), 0, 255)
+
+  if ((val > MinTemp) & (val < a))
+    green := constrain(255 / (a - MinTemp) * val - (255 * MinTemp) / (a - MinTemp), 0, 255)
+  elseif ((val => a) & (val =< c))
+    green := 255
+  elseif (val > c)
+    green := constrain(255 / (c - d) * val - (d * 255) / (c - d), 0, 255)
+  elseif ((val > d) | (val < a))
+    green := 0
+
+  if (val =< b)
+    blue := constrain(255 / (a - b) * val - (255 * b) / (a - b), 0, 255)
+  elseif ((val > b) & (val =< d))
+    blue := 0
+  elseif (val > d)
+    blue := constrain(240 / (MaxTemp - d) * val - (d * 240) / (MaxTemp - d), 0, 240)
+
+'   use the displays color mapping function to get 5-6-5 color palet (R=5 bits, G=6 bits, B-5 bits)
+'  return Display.color565(red, green, blue)
+
+PUB Constrain(val, lower, upper)
+
+  return lower #> val <# upper
+
+PUB SetTempScale | i
+
+  if (DefaultTemp < 0)
+    MinTemp := 25
+    MaxTemp := 35
+    Getabcd
+'    DrawLegend
+  else
+    val := 0'.0
+    repeat i from 0 to 63
+      val := val + pixels[i]
+    val := val / 64
+
+    MaxTemp := val + 2
+    MinTemp := val - 2
+    Getabcd
+'    DrawLegend();
+
+PUB Getabcd
+'Scaled by 10_000
+  a := MinTemp + (MaxTemp - MinTemp) * 2121'0.2121
+  b := MinTemp + (MaxTemp - MinTemp) * 3182'0.3182
+  c := MinTemp + (MaxTemp - MinTemp) * 4242'0.4242
+  d := MinTemp + (MaxTemp - MinTemp) * 8182'0.8182
 
 DAT
 {
