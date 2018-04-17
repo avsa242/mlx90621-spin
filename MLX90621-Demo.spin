@@ -26,53 +26,195 @@ OBJ
   time  : "time"
   therm : "sensor.thermal.array.mlx90621"
   oled  : "display.oled96"
-  debug : "debug"
-  
+'  debug : "debug"
+  adc   : "jm_adc124s021"
+  int   : "string.integer"
+
 VAR
 
-  long _drawframe_stack[100]
   word _ir_frame[64]
+  long _drawframe_stack[50]
+  long _serframe_stack[50]
+  long _adc_stack[50]
+  long _keydaemon_stack[50]
+
+  long a_min, a_max, a_range
+  long b_min, b_max, b_range
+  long c_min, c_max, c_range
+  long d_min, d_max, d_range
+
+  long Vin_100
+  long _offset
 
 PUB Main
 
+  a_min := 0
+  a_max := 16383
+  a_range := a_max - a_min
+ 
+  b_min := a_max + 1
+  b_max := 32767
+  b_range := b_max - b_min
+
+  c_min := b_max + 1
+  c_max := 49151
+  c_range := c_max - c_min
+  
+  d_min := c_max + 1
+  d_max := 65535
+  d_range := d_max - d_min
+  
   Setup
 
   wordfill(@_ir_frame, 0, 64)
 
-
   repeat
     therm.GetFrame (@_ir_frame)
 
-PUB DrawFrame | col, line, k, sx, sy, width, height, color
+PUB Constrain(val, lower, upper)
+
+  return lower #> val <# upper
+
+PUB DrawFrame | col, line, k, sx, sy, width, height, color, vs, vin, trow, tcol, i, mintemp, maxtemp
 
   sx := 7
   sy := 5
   width := 4
   height := 4
+  trow := 7*(6)
+  tcol := 5*(7)
+  mintemp := 32767
+  maxtemp := 32767
+  _offset := 32000
+
+  oled.box(sx-1, sy-1, (width*20) + sx, (height*5) + sy, oled#White, 0)'Draw box surrounding thermal image
+
+  repeat i from 0 to 95'Draw Color Scale
+    oled.line (i, (height*5)+sy+2, i, (height*5)+sy+10, GetColor (i*689))
+    '65535 max range from thermal sensor
+    '95 max horizontal pixel range of OLED display
+    '...so each step in the color scale is 689 (65535/95)
+
+
+'  vs := string("Batt:")
+'  oled.write1x16String (vs, 5, 0, trow, oled#LightGrey, oled#Black)'(str,len,col,row,RGB,BRGB)
+'  repeat
+'    oled.write1x16String (Vin_100, 3, tcol, trow, oled#LightGrey, oled#Black)'(str,len,col,row,RGB,BRGB)
 
   repeat
+'    oled.write1x16String (int.DecPadded (mintemp, 5), 5, 0, trow, oled#LightGrey, oled#Black)'(str,len,col,row,RGB,BRGB)
+'    oled.write1x16String (int.DecPadded (maxtemp, 5), 5, 0, trow+7+1, oled#LightGrey, oled#Black)'(str,len,col,row,RGB,BRGB)
     repeat line from 0 to 3
       repeat col from 0 to 15
         k := (col * 4) + line
-        color := (65535-_ir_frame.word[k])
-        oled.box((col * 5) + sx, line * 5, (col * 5) + sx + width, (line * 5) + height, color, color)
-'        oled.PlotPoint (col + sx, line + sy, _ir_frame.word[k], _ir_frame.word[k])
+        color := GetColor ((_ir_frame.word[k])+_offset)
+        oled.box((col * 5) + sx, (line * 5)+sy, (col * 5) + sx + width, (line * 5) + sy + height, color, color)
+'        if _ir_frame.word[k] < mintemp
+'          mintemp := _ir_frame.word[k]
+'        if _ir_frame.word[k] > maxtemp
+'          maxtemp := _ir_frame.word[k]
 
+PUB GetColor(val) | red, green, blue, inmax, outmax, divisor
+
+  inmax := 65535
+  outmax := 255
+  divisor := Constrain (inmax, 0, 65535)/outmax
+
+  if val => a_min and val =< a_max
+    red := Constrain ((val/divisor), 0, 255)
+    green := 0
+    blue := Constrain ((val/divisor), 0, 255)
+
+  elseif val => b_min and val =< b_max
+    red := Constrain (255-(val/divisor), 0, 255)
+    green := 0
+    blue := 255
+
+  elseif val => c_min and val =< c_max
+    red := Constrain ((val/divisor), 0, 255)
+    green := Constrain ((val/divisor), 0, 255)
+    blue := Constrain (255-(val/divisor), 0, 255)
+
+  elseif val => d_min and val =< d_max
+    red := 255
+    green := 255
+    blue := Constrain ((val/divisor), 0, 255)
+
+' RGB888 format
+'  return (red << 16) | (green << 8) | blue
+
+' RGB565 format
+  return ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
+
+PUB serframe | line, col, k, color, tmax, tmin
+
+  tmin := 32767
+  tmax := 32767
+
+  repeat
+    ser.Position (0, 0)
+    ser.Clear
+    repeat line from 0 to 3
+      repeat col from 0 to 15
+        k := (col * 4) + line
+        color := GetColor (_ir_frame.word[k])
+        if color < tmin
+          tmin := color
+          ser.Str (string("Min: "))
+          ser.Dec (tmin)
+          ser.NewLine
+        if color > tmax
+          tmax := color
+          ser.Str (string("Max: "))
+          ser.Dec (tmax)
+          ser.NewLine
+'        ser.Dec (color)
+'        ser.Char (" ")
+'      ser.NewLine
+
+PUB keydaemon | cmd, volts, adcraw, soc
+
+  adc.start (21, 20, 18, 19)'(cspin, sckpin, dipin, dopin)
+  ser.Start (115_200)
+  time.Sleep (3)
+  ser.Clear
+  ser.Str (string("Serial terminal started", ser#NL))
+  repeat
+    ser.Str (string("Offset: "))
+    ser.Dec (_offset)
+    ser.NewLine
+
+    repeat until cmd := ser.CharIn
+    case cmd
+      "-":
+        _offset-=1000
+        if _offset < 0
+          _offset := 0
+      "=":
+        _offset+=1000
+        if _offset > 65535
+          _offset := 65535
+      "b":
+        adcraw := adc.read (0)
+        volts := (((adcraw * 100) / 4095) * 50)
+        ser.Str (string("Battery level: "))
+        ser.Dec (volts)
+        ser.Str (string("mV  ("))
+        soc := (volts * 100) / 4200 '% of ADC full range -> 1 cell Volts -> % of 1 cell full charge
+        ser.Dec (soc)
+        ser.Str (string("%)", ser#NL))
+      OTHER:
+ 
 PUB Setup
 
-  ser.Start (115_200)
-  ser.Clear
-
+  cognew(keydaemon, @_keydaemon_stack)
   oled.Init(CS, DC, DATA, CLK, RST)
   oled.clearDisplay
   oled.AutoUpdateOn
   oled.clearDisplay
   oled.boxFillOn
   cognew(DrawFrame, @_drawframe_stack)
-
   therm.Start (8, 7, 400_000)
-
-'  debug.LEDFast (26)
 
 
 DAT

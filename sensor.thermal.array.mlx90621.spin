@@ -1,30 +1,32 @@
 {
     --------------------------------------------
-    Filename:
-    Author:
-    Copyright (c) 20__
+    Filename: sensor.thermal.array.mlx90621.spin
+    Author: Jesse Burt
+    Description: Driver for the Melexis MLX90621
+     16x4 IR array (I2C).
+    Copyright (c) 2018
     See end of file for terms of use.
     --------------------------------------------
 }
 
 CON
 
-'  _clkmode  = cfg#_clkmode
-'  _xinfreq  = cfg#_xinfreq
-
-  SLAVE_EE        = $50 << 1
-  MLX90621_ADDR   = $60 << 1
-  W               = %0
-  R               = %1
-  EE_SIZE         = 256
-  EE_CLK          = 400_000
-  THERM_CLK       = 400_000
-  PAGE            = 0
-  SINGLE_LINE     = 1
+  SLAVE_EE            = $50 << 1
+  MLX90621_ADDR       = $60 << 1
+  W                   = %0
+  R                   = %1
+  EE_SIZE             = 256
+  EE_CLK              = 400_000
+  THERM_CLK           = 1_000_000
 
   CMD_WRITE_CFG       = $03
   CMD_WRITE_OSC_TRIM  = $04
 
+  MMODE_CONT          = 0
+  MMODE_STEP          = 1
+
+  OPMODE_NORM         = 0
+  OPMODE_SLEEP        = 1
 
 OBJ
 
@@ -34,7 +36,6 @@ OBJ
 VAR
 
   byte _ee_data[EE_SIZE]
-  long _scl, _sda
   byte _osc_trim
   byte _ackbit
   long _nak
@@ -64,9 +65,6 @@ PUB Start(SCL, SDA, I2C_HZ): okay | check'| check, i, j, k, col, line, rawpix[32
 ''  15 image process/correct
 ''  loop to step 7
 
-  _scl := 8
-  _sda := 7
-
   i2c.setupx (SCL, SDA, EE_CLK)
   time.MSleep (3)
   i2c.start
@@ -87,72 +85,7 @@ PUB Start(SCL, SDA, I2C_HZ): okay | check'| check, i, j, k, col, line, rawpix[32
   Setup
 
 PUB Setup | check, cs, rst, dc, clk, data
-{
-0
- 0
- 0
- 0 - IR Refresh rate = 512Hz
-0
- 0
- 0
- 1 - IR Refresh rate = 512Hz
-0
- 0
- 1
- 0 - IR Refresh rate = 512Hz
-0
- 0
- 1
- 1 - IR Refresh rate = 512Hz
-0
- 1
- 0
- 0 - IR Refresh rate = 512Hz
-0
- 1
- 0
- 1 - IR Refresh rate = 512Hz
-0
- 1
- 1
- 0 - IR Refresh rate = 256Hz
-0
- 1
- 1
- 1 - IR Refresh rate = 128Hz
-1
- 0
- 0
- 0 - IR Refresh rate = 64Hz
-1
- 0
- 0
- 1 - IR Refresh rate = 32Hz
-1
- 0
- 1
- 0 - IR Refresh rate = 16Hz
-1
- 0
- 1
- 1 - IR Refresh rate = 8Hz
-1
- 1
- 0
- 0 - IR Refresh rate = 4Hz
-1
- 1
- 0
- 1 - IR Refresh rate = 2Hz
-1
- 1
- 1
- 0 - IR Refresh rate = 1Hz (default)
-1
- 1
- 1
- 1 - IR Refresh rate = 0.5Hz
-}
+
   Write_OSCTrim (peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
   Write_Cfg ($4E39)' (peek_ee($F6)<<8) | peek_ee($F5) )'($4E39) '463E
   time.MSleep (5)
@@ -375,6 +308,103 @@ PUB Read_OSCTrim | read_data, osctrim_data
   read_data := readword
   
   osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
+
+PUB SetADCRes(bits)
+' Set ADC resolution
+' NOTE: Updates the VAR _adc_res, as this is used in the various thermal correction calculations
+' TODO:
+'   Create a wrapper re-cal method
+  Read_Cfg
+  case bits
+    15:
+      bits := %00
+    16:
+      bits := %01
+    17:
+      bits := %10
+    18:
+      bits := %11
+    OTHER:
+      bits := %11 'Default to 18bits
+    
+  Write_Cfg (_cfg_reg | (bits << 4) )
+  _adc_res := 3-((_cfg_reg & %0011_0000) >> 4)  'Update the VAR used in calculations
+
+PUB SetI2CFM(mode)
+' Set I2C FM+ mode
+'   0 or 1000 - Max I2C bus speed/bit transfer rate up to 1000kbit/sec (default)
+'   1 or 400 - Max I2C bus speed/bit transfer rate up to 400kbit/sec
+  Read_Cfg
+  case mode
+    I2CFMODE_ENA, 1000:
+      mode := %0
+    I2CFMODE_DIS, 400:
+      mode := %1
+    OTHER:
+      mode := %0
+
+  Write_Cfg (_cfg_reg | (mode << 11))
+
+PUB SetMeasureMode(mode)
+' Set measurement mode
+'   MMODE_CONT (0) - Continuous (default)
+'   MMODE_STEP (1) - Step
+  Read_Cfg
+  case mode
+    MMODE_CONT:
+      mode := %0
+    MMODE_STEP:
+      mode := %1
+    OTHER:
+      mode := %0
+
+  Write_Cfg (_cfg_reg | (mode << 6))
+
+PUB SetOperationMode(mode)
+'Set Operation mode
+' OPMODE_NORM (0) - Normal (default)
+' OPMODE_SLEEP (1) - Sleep mode
+  Read_Cfg
+  case mode
+    OPMODE_NORM:
+      mode := %0
+    OPMODE_SLEEP:
+      mode := %1
+    OTHER:
+      mode := %0
+
+  Write_Cfg (_cfg_reg | (mode << 7))
+
+PUB SetRefreshRate(Hz)
+  
+  Read_Cfg
+  case Hz
+    0, 0.5, 5:
+      Hz := %1111
+    1:
+      Hz := %1110
+    2:
+      Hz := %1101
+    4:
+      Hz := %1100
+    8:
+      Hz := %1011
+    16:
+      Hz := %1010
+    32:
+      Hz := %1001
+    64:
+      Hz := %1000
+    128:
+      Hz := %0111
+    256:
+      Hz := %0110
+    512:
+      Hz := %0101
+    OTHER:
+      Hz := %1110 'Default to 1 Hz
+
+  Write_Cfg (_cfg_reg | Hz)
 
 PUB Write_OSCTrim(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
 
