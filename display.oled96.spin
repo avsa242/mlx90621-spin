@@ -70,7 +70,7 @@ All text above, and the splash screen below must be included in
 any redistribution
 *********************************************************************
 Note: The splash screen is way down in the DAT section of this file.
-         
+
 }}
 CON
 

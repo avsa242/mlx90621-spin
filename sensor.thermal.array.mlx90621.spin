@@ -16,17 +16,26 @@ CON
   W                   = %0
   R                   = %1
   EE_SIZE             = 256
-  EE_CLK              = 400_000
-  THERM_CLK           = 1_000_000
+  EE_MAX_CLK          = 400_000
+  THERM_MAX_CLK       = 1_000_000
 
   CMD_WRITE_CFG       = $03
   CMD_WRITE_OSC_TRIM  = $04
+
+  I2CFMODE_ENA        = 0
+  I2CFMODE_DIS        = 1
 
   MMODE_CONT          = 0
   MMODE_STEP          = 1
 
   OPMODE_NORM         = 0
   OPMODE_SLEEP        = 1
+
+  ADCREF_HI           = 0
+  ADCREF_LO           = 1
+
+  EE_ENA              = 0
+  EE_DIS              = 1
 
 OBJ
 
@@ -65,7 +74,7 @@ PUB Start(SCL, SDA, I2C_HZ): okay | check'| check, i, j, k, col, line, rawpix[32
 ''  15 image process/correct
 ''  loop to step 7
 
-  i2c.setupx (SCL, SDA, EE_CLK)
+  i2c.setupx (SCL, SDA, EE_MAX_CLK)
   time.MSleep (3)
   i2c.start
   check := i2c.write(SLAVE_EE|W)
@@ -82,17 +91,28 @@ PUB Start(SCL, SDA, I2C_HZ): okay | check'| check, i, j, k, col, line, rawpix[32
   ifnot okay
     return FALSE
 
-  Setup
+'  Setup
 
-PUB Setup | check, cs, rst, dc, clk, data
+PUB Setup' | check, cs, rst, dc, clk, data
 
   Write_OSCTrim (peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
-  Write_Cfg ($4E39)' (peek_ee($F6)<<8) | peek_ee($F5) )'($4E39) '463E
+'  Write_Cfg ($463E)' (peek_ee($F6)<<8) | peek_ee($F5) )'($4E39) '463E
+  _cfg_reg := 0  
+  SetRefreshRate (32)
+  SetADCRes (18)
+  SetMeasureMode (MMODE_CONT)
+  SetOperationMode (OPMODE_NORM) '0019 XXX OPMODE_SLEEP unverified (returns 463E)
+  SetI2CFM (I2CFMODE_ENA)
+  SetEEPROM (EE_ENA)
+  SetADCReference (ADCREF_LO)
+
+  Write_Cfg (_cfg_reg)
   time.MSleep (5)
 
   Read_Cfg
   Read_OSCTrim
   _adc_res := 3-((_cfg_reg & %0011_0000) >> 4)
+  return _cfg_reg
 
 PRI command (slave_addr, cmd_byte, st_addr, addr_step, nr_reads) | cmd_packet[2]
 
@@ -104,19 +124,22 @@ PRI command (slave_addr, cmd_byte, st_addr, addr_step, nr_reads) | cmd_packet[2]
 
   i2c.start
   _ackbit := i2c.pwrite(@cmd_packet, 5)
-'  i2c.stop
 
 PRI readword: data_word | read_data
 
   i2c.start
   _ackbit := i2c.write (MLX90621_ADDR|R)
-  i2c.stop
-  
-  i2c.start
   i2c.pread (@read_data, 2, TRUE)
   i2c.stop
 
   data_word := (read_data.byte[1] << 8) | read_data.byte[0]
+
+PUB CheckPOR: flag
+' Power-On-Reset bit status
+' Bit must be set when uploading configuration register
+  Read_Cfg
+  flag := ((_cfg_reg >> 10) &1)
+  flag~~
 
 PUB GetCompPixel | rawpix
 
@@ -124,7 +147,7 @@ PUB GetCompPixel | rawpix
   
   i2c.start
   _ackbit := i2c.write (MLX90621_ADDR|R)
-  i2c.stop
+'  i2c.stop
 
   i2c.pread (@rawpix, 1, TRUE)
   i2c.stop
@@ -141,8 +164,6 @@ PUB GetLine(line, ptr_line) | rawpix[8], col, pixel
 
       i2c.start
       _ackbit := i2c.write (MLX90621_ADDR|R)
-      i2c.stop
-    
       i2c.pread (@rawpix, 32, TRUE)
       i2c.stop
 
@@ -163,7 +184,7 @@ PUB GetColumn(col, ptr_col) | rawpix[2], line, pixel
 
       i2c.start
       _ackbit := i2c.write (MLX90621_ADDR|R)
-      i2c.stop
+'      i2c.stop
 
       i2c.pread (@rawpix, 8, TRUE)
       i2c.stop
@@ -182,15 +203,14 @@ PUB GetPixel(col, line) | rawpix, pixel
   if col < 0 or col > 15 or line < 0 or line > 15
     return
 
-  command(MLX90621_ADDR|W, $02, (col * 4) + line, $00, $01)
+  pixel := (col * 4) + line 'Compute offset location in array of current pixel
+  command(MLX90621_ADDR|W, $02, pixel, $00, $01)
 
   i2c.start
   _ackbit := i2c.write (MLX90621_ADDR|R)
-
   i2c.pread (@rawpix, 2, TRUE)
   i2c.stop
 
-  pixel := (col * 4) + line 'Compute offset location in array of current pixel
   if rawpix > 32767         'Two's-complement
     rawpix := rawpix - 65536
 
@@ -206,6 +226,12 @@ PUB GetFrame(ptr_frame) | line, col, rawpix[32], pixel
       if rawpix.word[pixel] > 32767   'Two's-complement
         rawpix.word[pixel] := rawpix.word[pixel] - 65536
       word[ptr_frame][pixel] := rawpix.word[pixel]
+
+PUB IsMeasureRunning: flag
+
+  Read_Cfg
+  flag := ((_cfg_reg >> 9) &1)
+  flag~~
 
 PUB readData(buff_ptr, start_addr, addr_step, word_count) | cmd_packet, raw_data
 
@@ -301,6 +327,8 @@ PUB Read_Cfg | read_data, por_bit
 
   _cfg_reg := (read_data.byte[1] << 8) | read_data.byte[0]
   por_bit := (_cfg_reg & %0000_0100_0000_0000) >> 10        'Check if POR bit (bit 10) is set
+  return _cfg_reg
+'XXX FIXME: por_bit isn't used...
 
 PUB Read_OSCTrim | read_data, osctrim_data
 
@@ -308,6 +336,24 @@ PUB Read_OSCTrim | read_data, osctrim_data
   read_data := readword
   
   osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
+
+PUB SetADCReference(mode)
+' Set ADC reference high, low
+'   ADCREF_HI (0) - ADC High reference enabled
+'   ADCREF_LO (1) - ADC Low reference enabled (default)
+' NOTE: Re-cal must be done after this method is called
+  Read_Cfg
+  case mode
+    ADCREF_HI:
+      mode := %0
+    ADCREF_LO:
+      mode := %1
+    OTHER:
+      mode := %1
+
+  _cfg_reg |= (mode << 14)
+  Write_Cfg (_cfg_reg)
+  'TODO: Call Re-cal method here
 
 PUB SetADCRes(bits)
 ' Set ADC resolution
@@ -326,24 +372,42 @@ PUB SetADCRes(bits)
       bits := %11
     OTHER:
       bits := %11 'Default to 18bits
-    
-  Write_Cfg (_cfg_reg | (bits << 4) )
+
+  _cfg_reg |= (bits << 4)
+  Write_Cfg (_cfg_reg)
   _adc_res := 3-((_cfg_reg & %0011_0000) >> 4)  'Update the VAR used in calculations
 
-PUB SetI2CFM(mode)
-' Set I2C FM+ mode
-'   0 or 1000 - Max I2C bus speed/bit transfer rate up to 1000kbit/sec (default)
-'   1 or 400 - Max I2C bus speed/bit transfer rate up to 400kbit/sec
+PUB SetEEPROM(mode)
+' Enable/disable the EEPROM
+'   EE_ENA, 0 - EEPROM enabled
+'   EE_DIS, 1 - EEPROM disabled
   Read_Cfg
   case mode
-    I2CFMODE_ENA, 1000:
+    EE_ENA, 0:
       mode := %0
-    I2CFMODE_DIS, 400:
+    EE_DIS, 1:
       mode := %1
     OTHER:
       mode := %0
 
-  Write_Cfg (_cfg_reg | (mode << 11))
+  _cfg_reg |= (mode << 12)
+  Write_Cfg (_cfg_reg)
+
+PUB SetI2CFM(mode)
+' Set I2C FM+ mode
+'   I2CFMODE_ENA (0), 1000, 1_000_000 - Max I2C bus speed/bit transfer rate up to 1000kbit/sec (default)
+'   I2CFMODE_DIS (1), 400, 400_000 - Max I2C bus speed/bit transfer rate up to 400kbit/sec
+  Read_Cfg
+  case mode
+    I2CFMODE_ENA, 1000, 1_000_000:
+      mode := %0
+    I2CFMODE_DIS, 400, 400_000:
+      mode := %1
+    OTHER:
+      mode := %0
+
+  _cfg_reg |= (mode << 11)
+  Write_Cfg (_cfg_reg)
 
 PUB SetMeasureMode(mode)
 ' Set measurement mode
@@ -358,7 +422,8 @@ PUB SetMeasureMode(mode)
     OTHER:
       mode := %0
 
-  Write_Cfg (_cfg_reg | (mode << 6))
+  _cfg_reg |= (mode << 6)
+  Write_Cfg (_cfg_reg)
 
 PUB SetOperationMode(mode)
 'Set Operation mode
@@ -373,7 +438,15 @@ PUB SetOperationMode(mode)
     OTHER:
       mode := %0
 
-  Write_Cfg (_cfg_reg | (mode << 7))
+  _cfg_reg |= (mode << 7)
+  Write_Cfg (_cfg_reg)
+
+'PUB SetPOR
+' Power-On-Reset bit status
+' Bit must be set when uploading configuration register
+'  Read_Cfg
+'  Write_Cfg (_cfg_reg | (%1 << 10))
+'  _cfg_reg |= (%1 << 10)
 
 PUB SetRefreshRate(Hz)
   
@@ -404,7 +477,8 @@ PUB SetRefreshRate(Hz)
     OTHER:
       Hz := %1110 'Default to 1 Hz
 
-  Write_Cfg (_cfg_reg | Hz)
+  _cfg_reg |= Hz
+  Write_Cfg (_cfg_reg)
 
 PUB Write_OSCTrim(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
 
@@ -443,6 +517,12 @@ PUB Write_Cfg(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
   _ackbit := i2c.write (msbyte_ck)
   _ackbit := i2c.write (msbyte)
   i2c.stop
+  return (msbyte<<8)|lsbyte
+
+PUB dump_ee(ptr) | ee_offset
+' Make sure ptr is 256 bytes in size!
+  repeat ee_offset from 0 to EE_SIZE-1
+    byte[ptr][ee_offset] := peek_ee(ee_offset)
 
 PUB peek_ee(location)
 '' Return byte at 'location' in EEPROM memory
@@ -458,8 +538,8 @@ PUB read_ee(ptr_ee_data) | ee_offset
 
   i2c.start                           'Read in the EEPROM
   _ackbit := i2c.write (SLAVE_EE|R)
-  i2c.stop
-  _ackbit := i2c.pread (@_ee_data, EE_SIZE-1, TRUE)
+'  i2c.stop
+  i2c.pread (@_ee_data, EE_SIZE-1, TRUE)
   i2c.stop
 
   repeat ee_offset from 0 to EE_SIZE-1

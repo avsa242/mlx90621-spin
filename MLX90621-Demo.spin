@@ -1,4 +1,4 @@
-{
+ {
     --------------------------------------------
     Filename:
     Author:
@@ -26,7 +26,6 @@ OBJ
   time  : "time"
   therm : "sensor.thermal.array.mlx90621"
   oled  : "display.oled96"
-'  debug : "debug"
   adc   : "jm_adc124s021"
   int   : "string.integer"
 
@@ -37,6 +36,7 @@ VAR
   long _serframe_stack[50]
   long _adc_stack[50]
   long _keydaemon_stack[50]
+  byte _ee_img[256]
 
   long a_min, a_max, a_range
   long b_min, b_max, b_range
@@ -45,6 +45,7 @@ VAR
 
   long Vin_100
   long _offset
+  word _cfg_reg
 
 PUB Main
 
@@ -69,7 +70,11 @@ PUB Main
   wordfill(@_ir_frame, 0, 64)
 
   repeat
-    therm.GetFrame (@_ir_frame)
+'    ser.Hex (therm.Read_Cfg, 8)
+'    ser.NewLine
+'    time.mSleep (100)
+'    therm.GetFrame (@_ir_frame)
+    therm.GetLine (0, @_ir_frame)
 
 PUB Constrain(val, lower, upper)
 
@@ -85,7 +90,7 @@ PUB DrawFrame | col, line, k, sx, sy, width, height, color, vs, vin, trow, tcol,
   tcol := 5*(7)
   mintemp := 32767
   maxtemp := 32767
-  _offset := 32000
+  _offset := 1
 
   oled.box(sx-1, sy-1, (width*20) + sx, (height*5) + sy, oled#White, 0)'Draw box surrounding thermal image
 
@@ -179,21 +184,24 @@ PUB keydaemon | cmd, volts, adcraw, soc
   time.Sleep (3)
   ser.Clear
   ser.Str (string("Serial terminal started", ser#NL))
-  repeat
-    ser.Str (string("Offset: "))
-    ser.Dec (_offset)
-    ser.NewLine
 
+  repeat
     repeat until cmd := ser.CharIn
     case cmd
       "-":
         _offset-=1000
         if _offset < 0
           _offset := 0
+        ser.Str (string("Offset: "))
+        ser.Dec (_offset)
+        ser.NewLine
       "=":
         _offset+=1000
         if _offset > 65535
           _offset := 65535
+        ser.Str (string("Offset: "))
+        ser.Dec (_offset)
+        ser.NewLine
       "b":
         adcraw := adc.read (0)
         volts := (((adcraw * 100) / 4095) * 50)
@@ -203,10 +211,38 @@ PUB keydaemon | cmd, volts, adcraw, soc
         soc := (volts * 100) / 4200 '% of ADC full range -> 1 cell Volts -> % of 1 cell full charge
         ser.Dec (soc)
         ser.Str (string("%)", ser#NL))
+      "c":
+        ser.Str (string("Init cfg reg: "))
+        ser.Hex (_cfg_reg, 8)
+        ser.NewLine
+      "e":
+        hexdump(_ee_img, 8, 256, 8)
+      "t":
+        dump_frame
       OTHER:
- 
+
+PUB hexdump(ptr, bits, len, linesz) | seg, off
+'Args ptr, len, linesz
+  repeat seg from 0 to len-linesz step linesz
+    ser.Hex (seg, 2)
+    ser.Str (string(": "))
+    repeat off from 0 to 7
+      ser.Hex (therm.peek_ee (seg+off), 2)
+      ser.Char (" ")
+    ser.NewLine
+
+PUB dump_frame | line, col, k
+
+  repeat line from 0 to 3
+    repeat col from 0 to 15
+      k := (col * 4) + line
+      ser.Hex (_ir_frame.word[k], 4)
+      ser.Char (" ")
+    ser.NewLine
+
 PUB Setup
 
+  therm.Start (8, 7, 400_000)
   cognew(keydaemon, @_keydaemon_stack)
   oled.Init(CS, DC, DATA, CLK, RST)
   oled.clearDisplay
@@ -214,8 +250,7 @@ PUB Setup
   oled.clearDisplay
   oled.boxFillOn
   cognew(DrawFrame, @_drawframe_stack)
-  therm.Start (8, 7, 400_000)
-
+  _cfg_reg := therm.Setup
 
 DAT
 {
