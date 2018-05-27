@@ -41,6 +41,7 @@ OBJ
 
   time  : "time"
   i2c   : "jm_i2c_fast"
+  type  : "system.types"
 
 VAR
 
@@ -53,6 +54,8 @@ VAR
   word _comp_pix
   byte _adc_res
   word _Vir_comp
+
+  long _Vth_h, _Vth_l, _Vth25, _Kt1 , _Kt1_h, _Kt1_l, _Kt1_Scl, _Kt2, _Kt2_h, _Kt2_l, _Kt2_Scl, KtScl
 
 PUB Start(SCL, SDA, I2C_HZ): okay | check'| check, i, j, k, col, line, rawpix[32], sx, sy, width, height, ptr_col[2], ptr_line[8]
 ''  TASKS:
@@ -93,7 +96,11 @@ PUB Start(SCL, SDA, I2C_HZ): okay | check'| check, i, j, k, col, line, rawpix[32
 
 '  Setup
 
-PUB Setup' | check, cs, rst, dc, clk, data
+PUB Stop
+
+  i2c.terminate
+
+PUB Setup
 
   Write_OSCTrim (peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
 '  Write_Cfg ($463E)' (peek_ee($F6)<<8) | peek_ee($F5) )'($4E39) '463E
@@ -112,15 +119,17 @@ PUB Setup' | check, cs, rst, dc, clk, data
   Read_Cfg
   Read_OSCTrim
   _adc_res := 3-((_cfg_reg & %0011_0000) >> 4)
+  Calc_Consts
+
   return _cfg_reg
 
-PRI command (slave_addr, cmd_byte, st_addr, addr_step, nr_reads) | cmd_packet[2]
+PUB command (cmd, addr_start, addr_step, num_reads) | cmd_packet[2]
 
-  cmd_packet.byte[0] := slave_addr
-  cmd_packet.byte[1] := cmd_byte
-  cmd_packet.byte[2] := st_addr
+  cmd_packet.byte[0] := MLX90621_ADDR|W
+  cmd_packet.byte[1] := cmd
+  cmd_packet.byte[2] := addr_start
   cmd_packet.byte[3] := addr_step
-  cmd_packet.byte[4] := nr_reads
+  cmd_packet.byte[4] := num_reads
 
   i2c.start
   _ackbit := i2c.pwrite(@cmd_packet, 5)
@@ -143,29 +152,16 @@ PUB CheckPOR: flag
 
 PUB GetCompPixel | rawpix
 
-  command(MLX90621_ADDR|W, $02, $41, $00, $01)
-  
-  i2c.start
-  _ackbit := i2c.write (MLX90621_ADDR|R)
-'  i2c.stop
-
-  i2c.pread (@rawpix, 1, TRUE)
-  i2c.stop
-
+  readData (@rawpix, $41, 0, 1)'buff_ptr, addr_start, addr_step, word_count)
   if rawpix > 32767  'Two's-complement
     rawpix:= rawpix - 65536
   return _comp_pix := rawpix
-  
+
 PUB GetLine(line, ptr_line) | rawpix[8], col, pixel
 
   case line
     0..3:
-      command(MLX90621_ADDR|W, $02, line, 4, 16)
-
-      i2c.start
-      _ackbit := i2c.write (MLX90621_ADDR|R)
-      i2c.pread (@rawpix, 32, TRUE)
-      i2c.stop
+      readData (@rawpix, line, 4, 16)
 
       repeat col from 0 to 15
         pixel := (col * 4) + line
@@ -180,14 +176,7 @@ PUB GetColumn(col, ptr_col) | rawpix[2], line, pixel
 
   case col
     0..15:
-      command(MLX90621_ADDR|W, $02, col * 4, 1, 4)
-
-      i2c.start
-      _ackbit := i2c.write (MLX90621_ADDR|R)
-'      i2c.stop
-
-      i2c.pread (@rawpix, 8, TRUE)
-      i2c.stop
+      readData (@rawpix, col * 4, 1, 4)'buff_ptr, addr_start, addr_step, word_count)
 
       repeat line from 0 to 3
         pixel := (col * 4) + line
@@ -198,22 +187,19 @@ PUB GetColumn(col, ptr_col) | rawpix[2], line, pixel
     OTHER:
       return
 
-PUB GetPixel(col, line) | rawpix, pixel
+PUB GetPixel(ptr_frame, col, line) | rawpix, pixel
 
   if col < 0 or col > 15 or line < 0 or line > 15
     return
 
   pixel := (col * 4) + line 'Compute offset location in array of current pixel
-  command(MLX90621_ADDR|W, $02, pixel, $00, $01)
 
-  i2c.start
-  _ackbit := i2c.write (MLX90621_ADDR|R)
-  i2c.pread (@rawpix, 2, TRUE)
-  i2c.stop
+  readData (@rawpix, pixel, 0, 1)
 
   if rawpix > 32767         'Two's-complement
     rawpix := rawpix - 65536
 
+  word[ptr_frame][pixel] := rawpix.word[line]
   return _ir_frame.word[pixel] := rawpix
 
 PUB GetFrame(ptr_frame) | line, col, rawpix[32], pixel
@@ -233,64 +219,60 @@ PUB IsMeasureRunning: flag
   flag := ((_cfg_reg >> 9) &1)
   flag~~
 
-PUB readData(buff_ptr, start_addr, addr_step, word_count) | cmd_packet, raw_data
+PUB readData(buff_ptr, addr_start, addr_step, word_count)' | raw_data
 
-  cmd_packet.byte[0] := MLX90621_ADDR|W
-  cmd_packet.byte[1] := $02
-  cmd_packet.byte[2] := start_addr
-  cmd_packet.byte[3] := addr_step
-  cmd_packet.byte[4] := word_count
-
-  i2c.start
-  _ackbit := i2c.pwrite(@cmd_packet, 5)
-
+  command ($02, addr_start, addr_step, word_count)
   i2c.start
   _ackbit := i2c.write (MLX90621_ADDR|R)
-
   i2c.pread (buff_ptr, word_count * 2, TRUE)
   i2c.stop
 
-PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Vth_h, Vth_l, Vth25, Kt1, Kt1_h, Kt1_l, Kt1_Scl, Kt2, Kt2_h, Kt2_l, Kt2_Scl, KtScl, Scale, Ta, cmd_packet
+PUB Calc_Consts | Scale
+
+  Scale := 100
+
+'' Consts for calculating Ta
+  _Vth_h := _ee_data.byte[$DB] '645F
+  _Vth_l := _ee_data.byte[$DA]
+  _Kt1_h := _ee_data.byte[$DD] '545E
+  _Kt1_l := _ee_data.byte[$DC]
+  _Kt2_h := _ee_data.byte[$DF] '5EB9
+  _Kt2_l := _ee_data.byte[$DE]
+  _Kt1_Scl := (_ee_data.byte[$D2] >> 4) & $0F '8B
+  _Kt2_Scl := _ee_data.byte[$D2] & $0F
+
+  _Vth25 := type.s16(_Vth_h, _Vth_l)
+  _Vth25 := _Vth25/pow(2, _adc_res) * Scale
+
+  _Kt1 := type.s16(_Kt1_h, _Kt1_l)
+
+  _Kt1 := (_Kt1 )/((pow(2, _Kt1_Scl) * pow(2, _adc_res)))*Scale 'Whole part
+
+  _Kt2 := type.s16(_Kt2_h, _Kt2_l)
+
+  _Kt2 := (_Kt2*Scale)/( (pow(2, (_Kt2_Scl) + 10) * pow(2, _adc_res)) ) 'Page 15
+
+PUB Read_PTAT | read_data, lsbyte, msbyte, PTAT, Scale, Ta, cmd_packet
 
   Scale := 100
   msbyte := lsbyte := 0
   readData (@read_data, $40, 0, 1)
-  PTAT := u16(read_data.byte[1], read_data.byte[0]) * Scale
-''  Ta = -Kt1 + sqrt(Kt1^2-4Kt2[Vth(25)-PTAT_data]) / 2Kt2 + 25, degC
-  Vth_h := _ee_data.byte[$DB] '645F
-  Vth_l := _ee_data.byte[$DA]
-  Kt1_h := _ee_data.byte[$DD] '545E
-  Kt1_l := _ee_data.byte[$DC]
-  Kt2_h := _ee_data.byte[$DF] '5EB9 
-  Kt2_l := _ee_data.byte[$DE]
-  Kt1_Scl := _ee_data.byte[$D2] >> 4 '8B
-  Kt2_Scl := _ee_data.byte[$D2] & $0F
+  PTAT := type.u16(read_data.byte[1], read_data.byte[0]) * Scale
+''  Ta = ((-_Kt1 + sqrt(_Kt1^2 - 4Kt2[Vth(25)-PTAT_data])) / 2Kt2) + 25  '(degC)
 
-  Vth25 := s16(Vth_h, Vth_l)
-  Vth25 := Vth25/pow(2, _adc_res) * Scale
-
-  Kt1 := s16(Kt1_h, Kt1_l)
-
-  Kt1 := (Kt1)/( (pow(2, Kt1_Scl) * pow(2, _adc_res)) )*Scale 'Whole part
-'  Kt1 := Kt1 + (Kt1 * Scale)//( (pow(2, _ee_data.byte[$D2] >> 4) * pow(2, _adc_res)) ) 'Fractional part
-
-  Kt2 := s16(Kt2_h, Kt2_l)
-
-  Kt2 := (Kt2*Scale)/( (pow(2, (Kt2_Scl) + 10) * pow(2, _adc_res)) ){*Scale} 'Page 15
-
-  Ta := (Kt1 * -1) + ^^(pow(Kt1, 2) - (4 * Kt2) * (Vth25 - PTAT) / (2 * Kt2) ) + 25
+  Ta := (_Kt1  * -1) + ^^(pow(_Kt1 , 2) - (4 * _Kt2) * (_Vth25 - PTAT) / (2 * _Kt2) ) + 25
   return Ta
 
 PUB calc_pixOffsetCompensation(col, line) | Ai, Ai_del, Ai_scl, A_com, Bi, Bi_scl, Acp, Bcp, Vir
 
-  Vir := GetPixel (col, line)
+  Vir := GetPixel (@_ir_frame, col, line)'Changed because of GetPixel() change
 
-  A_com := s16(_ee_data.byte[$D1], _ee_data.byte[$D0])
+  A_com := type.s16(_ee_data.byte[$D1], _ee_data.byte[$D0])
   Ai_del := (_ee_data.byte[$00 + (col * 4) + line])
   Ai_scl := (_ee_data.byte[$D9] & $F0)
   Ai := (A_com + Ai_del * pow(2, Ai_scl)) / pow (2, _adc_res)
 
-  Bi := s8(_ee_data.byte[$40 + (col * 4) + line])
+  Bi := type.s8(_ee_data.byte[$40 + (col * 4) + line])
   Bi_scl := (_ee_data.byte[$D9] & $0F)
   _Vir_comp := Vir - (Ai + Bi * (Read_PTAT - 25))
   return _Vir_comp
@@ -322,7 +304,7 @@ PUB pow(a, b) | p
 
 PUB Read_Cfg | read_data, por_bit
 
-  command(MLX90621_ADDR|W, $02, $92, $00, $01)
+  command($02, $92, 0, 1)
   read_data := readword
 
   _cfg_reg := (read_data.byte[1] << 8) | read_data.byte[0]
@@ -332,7 +314,7 @@ PUB Read_Cfg | read_data, por_bit
 
 PUB Read_OSCTrim | read_data, osctrim_data
 
-  command(MLX90621_ADDR|W, $02, $93, $00, $01)
+  command($02, $93, 0, 1)
   read_data := readword
   
   osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
@@ -449,7 +431,9 @@ PUB SetOperationMode(mode)
 '  _cfg_reg |= (%1 << 10)
 
 PUB SetRefreshRate(Hz)
-  
+' Set sensor refresh rate
+' Valid values are 0, 0.5 or 5 for 0.5Hz, or 1 to 512 in powers of 2
+' NOTE: Higher rates will yield noisier images
   Read_Cfg
   case Hz
     0, 0.5, 5:
@@ -519,10 +503,11 @@ PUB Write_Cfg(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
   i2c.stop
   return (msbyte<<8)|lsbyte
 
-PUB dump_ee(ptr) | ee_offset
+PUB dump_ee(ptr)' | ee_offset
 ' Make sure ptr is 256 bytes in size!
-  repeat ee_offset from 0 to EE_SIZE-1
-    byte[ptr][ee_offset] := peek_ee(ee_offset)
+'  repeat ee_offset from 0 to EE_SIZE-1
+'    byte[ptr][ee_offset] := peek_ee(ee_offset)
+  bytemove(ptr, @_ee_data, EE_SIZE-1)
 
 PUB peek_ee(location)
 '' Return byte at 'location' in EEPROM memory
@@ -532,35 +517,18 @@ PUB read_ee(ptr_ee_data) | ee_offset
 '' Read EEPROM contents into RAM
   bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
 
-  i2c.start
+  i2c.start                           'Start reading at addr $00
   _ackbit := i2c.write (SLAVE_EE|W)
   _ackbit := i2c.write ($00)
 
   i2c.start                           'Read in the EEPROM
   _ackbit := i2c.write (SLAVE_EE|R)
-'  i2c.stop
   i2c.pread (@_ee_data, EE_SIZE-1, TRUE)
   i2c.stop
 
   repeat ee_offset from 0 to EE_SIZE-1
     byte[ptr_ee_data][ee_offset] := _ee_data.byte[ee_offset]
 
-PRI s16(ms_byte, ls_byte) | tmp_word
-
-  tmp_word := (ms_byte << 8) | ls_byte
-  if tmp_word > 32767
-    tmp_word := tmp_word - 65536
-  return tmp_word
-
-PRI u16(ms_byte, ls_byte)
-
-  return ((ms_byte << 8) | ls_byte)
-
-PRI s8(byte_val)
-
-  if byte_val > 127
-    byte_val := byte_val - 128
-  return byte_val
 
 DAT
 {

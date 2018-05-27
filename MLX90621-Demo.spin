@@ -36,6 +36,7 @@ VAR
   long _serframe_stack[50]
   long _adc_stack[50]
   long _keydaemon_stack[50]
+  byte _therm_cog
   byte _ee_img[256]
 
   long a_min, a_max, a_range
@@ -73,8 +74,10 @@ PUB Main
 '    ser.Hex (therm.Read_Cfg, 8)
 '    ser.NewLine
 '    time.mSleep (100)
-'    therm.GetFrame (@_ir_frame)
-    therm.GetLine (0, @_ir_frame)
+    therm.GetFrame (@_ir_frame)
+'    therm.GetLine (1, @_ir_frame)
+'    therm.GetPixel (@_ir_frame, 4, 2)
+'    time.MSleep (250)
 
 PUB Constrain(val, lower, upper)
 
@@ -184,6 +187,16 @@ PUB keydaemon | cmd, volts, adcraw, soc
   time.Sleep (3)
   ser.Clear
   ser.Str (string("Serial terminal started", ser#NL))
+  if _therm_cog
+    ser.Str (string("MLX90621 object started on cog "))
+    ser.Dec (_therm_cog)
+    ser.NewLine
+  else
+    ser.Str (string("Error: MLX90621 object failed to start - halting", ser#NL))
+    oled.stop
+    therm.Stop
+    ser.Stop
+    repeat
 
   repeat
     repeat until cmd := ser.CharIn
@@ -202,6 +215,10 @@ PUB keydaemon | cmd, volts, adcraw, soc
         ser.Str (string("Offset: "))
         ser.Dec (_offset)
         ser.NewLine
+      "a":
+        ser.Str (string("PTAT: "))
+        ser.Dec (therm.Read_PTAT)
+        ser.NewLine
       "b":
         adcraw := adc.read (0)
         volts := (((adcraw * 100) / 4095) * 50)
@@ -216,18 +233,19 @@ PUB keydaemon | cmd, volts, adcraw, soc
         ser.Hex (_cfg_reg, 8)
         ser.NewLine
       "e":
-        hexdump(_ee_img, 8, 256, 8)
+        hexdump(@_ee_img)
       "t":
         dump_frame
       OTHER:
 
-PUB hexdump(ptr, bits, len, linesz) | seg, off
-'Args ptr, len, linesz
-  repeat seg from 0 to len-linesz step linesz
+PUB hexdump(ptr) | seg, off
+
+  therm.dump_ee (ptr)
+  repeat seg from 0 to therm#EE_SIZE-8 step 8
     ser.Hex (seg, 2)
     ser.Str (string(": "))
     repeat off from 0 to 7
-      ser.Hex (therm.peek_ee (seg+off), 2)
+      ser.Hex (byte[ptr][seg+off], 2)
       ser.Char (" ")
     ser.NewLine
 
@@ -242,7 +260,7 @@ PUB dump_frame | line, col, k
 
 PUB Setup
 
-  therm.Start (8, 7, 400_000)
+  _therm_cog := therm.Start (8, 7, 400_000)
   cognew(keydaemon, @_keydaemon_stack)
   oled.Init(CS, DC, DATA, CLK, RST)
   oled.clearDisplay
