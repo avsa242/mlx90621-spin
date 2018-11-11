@@ -22,6 +22,8 @@ CON
     CMD_WRITEREG_CFG        = $03
     CMD_WRITEREG_OSCTRIM    = $04
 
+    REG_CFG                 = $92
+    REG_OSC                 = $93
 
 PUB Null
 '' This is not a top-level object

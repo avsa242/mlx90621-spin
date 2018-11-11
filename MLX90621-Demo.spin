@@ -207,7 +207,7 @@ PUB keydaemon | cmd, volts, adcraw, soc
     ser.Stop
     repeat
   ser.Str (string(ser#NL, "cfg reg: "))
-  ser.Hex (_cfg_reg, 8)
+  ser.Hex (_cfg_reg := therm.Read_Cfg, 8)
   ser.Char (" ")
   ser.Bin (_cfg_reg, 16)
   repeat
@@ -295,7 +295,7 @@ PUB Setup
 
     _therm_cog := therm.Startx (SCL, SDA, I2C_FREQ)
     therm.Defaults
-    _cfg_reg := therm.SetRefreshRate (32)
+    therm.SetRefreshRate (32)
     cognew(keydaemon, @_keydaemon_stack)
     oled.Init(CS, DC, DATA, CLK, RST)
     oled.clearDisplay

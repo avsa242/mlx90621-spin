@@ -252,17 +252,40 @@ PUB IsMeasureRunning: flag
   flag := ((_cfg_reg >> 9) & 1)
   flag~~
 
-PUB readData(buff_ptr, addr_start, addr_step, word_count) | ackbit
+PUB readData(buff_ptr, addr_start, addr_step, word_count) | ackbit, cmd_packet[2]
+{  cmd_packet.byte[0] := SLAVE_WR
+  cmd_packet.byte[1] := cmd
+  cmd_packet.byte[2] := addr_start
+  cmd_packet.byte[3] := addr_step
+  cmd_packet.byte[4] := num_reads
 
+  i2c.start
+  ackbit := i2c.pwrite(@cmd_packet, 5)
+  if ackbit == i2c#NAK
+    _nak_count++
+}
+    cmd_packet.byte[0] := SLAVE_WR
+    cmd_packet.byte[1] := core#CMD_READREG
+    cmd_packet.byte[2] := addr_start
+    cmd_packet.byte[3] := addr_step
+    cmd_packet.byte[4] := word_count
+    
+    i2c.start
+    i2c.pwrite (@cmd_packet, 5)
+    i2c.start
+    i2c.write (SLAVE_RD)
+    i2c.pread (buff_ptr, word_count << 1, TRUE) '*2 = 81.6uS, << 1 = 71.8uS
+    i2c.stop
+{
   command ($02, addr_start, addr_step, word_count)
   i2c.start
 '  ackbit := i2c.write (MLX90621_ADDR|R)
   i2c.write (SLAVE_RD)
-  i2c.pread (buff_ptr, word_count << 1 {*2}, TRUE) '*2 = 81.6uS, << 1 = 74uS w/assign, 71.8uS w/out assign
+  i2c.pread (buff_ptr, word_count << 1, TRUE) '*2 = 81.6uS, << 1 = 74uS w/assign, 71.8uS w/out assign
   i2c.stop
   if ackbit == i2c#NAK
     _nak_count++
-
+}
 PUB readNAK
 
   return _nak_count
@@ -345,12 +368,13 @@ PUB pow(a, b) | p
 
 PUB Read_Cfg | read_data, por_bit
 
-  command($02, $92, 0, 1)
-  read_data := readword
-
-  _cfg_reg := (read_data.byte[1] << 8) | read_data.byte[0]
-  por_bit := (_cfg_reg & %0000_0100_0000_0000) >> 10        'Check if POR bit (bit 10) is set
-  return _cfg_reg
+'    command($02, $92, 0, 1)
+'    read_data := readword
+    readData (@read_data, core#REG_CFG, 0, 1)'(buff_ptr, addr_start, addr_step, word_count)
+    
+    _cfg_reg := (read_data.byte[1] << 8) | read_data.byte[0]
+    por_bit := (_cfg_reg & %0000_0100_0000_0000) >> 10        'Check if POR bit (bit 10) is set
+    return _cfg_reg
 'XXX FIXME: por_bit isn't used...
 
 PUB Read_OSCTrim | read_data, osctrim_data
@@ -432,21 +456,23 @@ PUB SetI2CFM(mode)
   _cfg_reg |= (mode << 11)
   Write_Cfg (_cfg_reg)
 
-PUB SetMeasureMode(mode)
+PUB SetMeasureMode(mode) | refrate_tmp, adcres_tmp
 ' Set measurement mode
 '   MMODE_CONT (0) - Continuous (default)
 '   MMODE_STEP (1) - Step
-  Read_Cfg
-  case mode
-    MMODE_CONT:
-      mode := %0
-    MMODE_STEP:
-      mode := %1
-    OTHER:
-        return
+    Read_Cfg
+    case mode
+        MMODE_CONT:
+            mode := %0
+        MMODE_STEP:
+            mode := %1
+        OTHER:
+            return
 
-  _cfg_reg |= (mode << 6)
-  Write_Cfg (_cfg_reg)
+    refrate_tmp := _cfg_reg & %1111
+    adcres_tmp := (_cfg_reg >> 4) & %11
+    _cfg_reg := ((_cfg_reg >> 7) << 7) | (mode << 6) | (adcres_tmp << 4) | refrate_tmp
+    Write_Cfg (_cfg_reg)
 
 PUB SetOperationMode(mode)
 'Set Operation mode
