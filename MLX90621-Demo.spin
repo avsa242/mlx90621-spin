@@ -202,6 +202,7 @@ PUB keydaemon | cmd, volts, adcraw, soc
     ser.NewLine
   else
     ser.Str (string("Error: MLX90621 object failed to start - halting", ser#NL))
+    time.MSleep (5)
     oled.stop
     therm.Stop
     ser.Stop
@@ -210,6 +211,8 @@ PUB keydaemon | cmd, volts, adcraw, soc
   ser.Hex (_cfg_reg := therm.Read_Cfg, 8)
   ser.Char (" ")
   ser.Bin (_cfg_reg, 16)
+  ser.NewLine
+
   repeat
     repeat until cmd := ser.CharIn
     case cmd
@@ -296,6 +299,12 @@ PUB Setup
     _therm_cog := therm.Startx (SCL, SDA, I2C_FREQ)
     therm.Defaults
     therm.SetRefreshRate (32)
+    therm.SetMeasureMode (0)
+    therm.SetADCRes (18)
+    therm.SetADCReference (1)
+    therm.SetEEPROM (0)
+    therm.SetI2CFM (0)
+    therm.SetOperationMode (0)
     cognew(keydaemon, @_keydaemon_stack)
     oled.Init(CS, DC, DATA, CLK, RST)
     oled.clearDisplay

@@ -56,20 +56,22 @@ OBJ
 
 VAR
 
-  byte _ee_data[EE_SIZE]
-  byte _osc_trim
-  byte _ackbit
-  long _nak
-  word _ir_frame[64]
-  word _cfg_reg
-  word _comp_pix
-  byte _adc_res
-  word _Vir_comp
-
-  long _Vth_h, _Vth_l, _Vth25, _Kt1 , _Kt1_h, _Kt1_l, _Kt1_Scl, _Kt2, _Kt2_h, _Kt2_l, _Kt2_Scl, KtScl
-  word _PTAT
-
-  long _nak_count 'temporary
+    byte _ee_data[EE_SIZE]
+    byte _osc_trim
+    byte _ackbit
+    long _nak
+    word _ir_frame[64]
+    word _cfg_reg
+    word _comp_pix
+    byte _adc_res
+    word _Vir_comp
+    
+    long _Vth_h, _Vth_l, _Vth25, _Kt1 , _Kt1_h, _Kt1_l, _Kt1_Scl, _Kt2, _Kt2_h, _Kt2_l, _Kt2_Scl, KtScl
+    word _PTAT
+    
+    long _nak_count 'temporary
+    
+    word _adcref, _ee_ena, _i2cfm_ena, _opmode, _mmode, _adcres, _refr_rate, _por_bit, _measuring
 
 PUB Null
 ''This is not a top-level object
@@ -137,7 +139,7 @@ PUB Defaults
 
   Write_OSCTrim (peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
 '  Write_Cfg ($4638)' (peek_ee($F6)<<8) | peek_ee($F5) )'($4E39) '463E
-  _cfg_reg := 0  
+'  _cfg_reg := 0  
   SetRefreshRate (1)
   SetADCRes (18)
   SetMeasureMode (MMODE_CONT)
@@ -366,16 +368,23 @@ PUB pow(a, b) | p
     p := pow(a, b / 2)
     return p * p
 
-PUB Read_Cfg | read_data, por_bit
+PUB Read_Cfg | tmp 'XXX Remove? Just use readData instead?
 
-'    command($02, $92, 0, 1)
-'    read_data := readword
-    readData (@read_data, core#REG_CFG, 0, 1)'(buff_ptr, addr_start, addr_step, word_count)
+    readData (@tmp, core#REG_CFG, 0, 1)
     
-    _cfg_reg := (read_data.byte[1] << 8) | read_data.byte[0]
-    por_bit := (_cfg_reg & %0000_0100_0000_0000) >> 10        'Check if POR bit (bit 10) is set
+    _cfg_reg := (tmp.byte[1] << 8) | tmp.byte[0]
+
+    _adcref := _cfg_reg &       %0_1_0_0_0_0_0_0_0_0_00_0000 
+    _ee_ena := _cfg_reg &       %0_0_0_1_0_0_0_0_0_0_00_0000
+    _i2cfm_ena := _cfg_reg &    %0_0_0_0_1_0_0_0_0_0_00_0000
+    _por_bit := _cfg_reg &      %0_0_0_0_0_1_0_0_0_0_00_0000
+    _measuring := _cfg_reg &    %0_0_0_0_0_0_1_0_0_0_00_0000
+    _opmode := _cfg_reg &       %0_0_0_0_0_0_0_0_1_0_00_0000
+    _mmode := _cfg_reg &        %0_0_0_0_0_0_0_0_0_1_00_0000
+    _adcres := _cfg_reg &       %0_0_0_0_0_0_0_0_0_0_11_0000
+    _refr_rate := _cfg_reg &    %0_0_0_0_0_0_0_0_0_0_00_1111
+
     return _cfg_reg
-'XXX FIXME: por_bit isn't used...
 
 PUB Read_OSCTrim | read_data, osctrim_data
 
@@ -384,111 +393,101 @@ PUB Read_OSCTrim | read_data, osctrim_data
   
   osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
 
-PUB SetADCReference(mode)
+PUB SetADCReference(mode)' | eetmp, i2cfmtmp, opmodetmp, mmodetmp, adcrestmp, refratetmp
 ' Set ADC reference high, low
 '   ADCREF_HI (0) - ADC High reference enabled
 '   ADCREF_LO (1) - ADC Low reference enabled (default)
 ' NOTE: Re-cal must be done after this method is called
-  Read_Cfg
-  case mode
-    ADCREF_HI:
-      mode := %0
-    ADCREF_LO:
-      mode := %1
-    OTHER:
-      mode := %1
+    Read_Cfg
+    case mode
+        ADCREF_HI, ADCREF_LO:
+            _adcref := (mode << 14)
+        OTHER:
+            return
 
-  _cfg_reg |= (mode << 14)
-  Write_Cfg (_cfg_reg)
+   _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
+    Write_Cfg (_cfg_reg)
   'TODO: Call Re-cal method here
 
-PUB SetADCRes(bits)
+PUB SetADCRes(bits)' | refrate_tmp
 ' Set ADC resolution
 ' NOTE: Updates the VAR _adc_res, as this is used in the various thermal correction calculations
 ' TODO:
 '   Create a wrapper re-cal method
-  Read_Cfg
-  case bits
-    15:
-      bits := %00
-    16:
-      bits := %01
-    17:
-      bits := %10
-    18:
-      bits := %11
-    OTHER:
-        return
+    Read_Cfg
+    case bits
+        15:
+            _adcres := (%00 << 4)
+        16:
+            _adcres := (%01 << 4)
+        17:
+            _adcres := (%10 << 4)
+        18:
+            _adcres := (%11 << 4)
+        OTHER:
+            return
 
-  _cfg_reg |= (bits << 4)
-  Write_Cfg (_cfg_reg)
-  _adc_res := 3-((_cfg_reg >> 4) & %11)'(_cfg_reg & %0011_0000) >> 4)  'Update the VAR used in calculations
+    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
 
-PUB SetEEPROM(mode)
+    Write_Cfg (_cfg_reg)
+    _adc_res := 3-((_cfg_reg >> 4) & %11)'(_cfg_reg & %0011_0000) >> 4)  'Update the VAR used in calculations
+
+PUB SetEEPROM(mode)'XXX Rename to EnableEEPROM, use boolean
 ' Enable/disable the EEPROM
 '   EE_ENA, 0 - EEPROM enabled
 '   EE_DIS, 1 - EEPROM disabled
-  Read_Cfg
-  case mode
-    EE_ENA, 0:
-      mode := %0
-    EE_DIS, 1:
-      mode := %1
-    OTHER:
-      mode := %0
+    Read_Cfg
+    case mode
+        EE_ENA, EE_DIS:
+            _ee_ena := (mode << 12)
+        OTHER:
+            return
 
-  _cfg_reg |= (mode << 12)
-  Write_Cfg (_cfg_reg)
+    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
+    Write_Cfg (_cfg_reg)
 
-PUB SetI2CFM(mode)
+PUB SetI2CFM(mode)'XXX Rename to EnableI2CFM, make boolean
 ' Set I2C FM+ mode
 '   I2CFMODE_ENA (0), 1000, 1_000_000 - Max I2C bus speed/bit transfer rate up to 1000kbit/sec (default)
 '   I2CFMODE_DIS (1), 400, 400_000 - Max I2C bus speed/bit transfer rate up to 400kbit/sec
-  Read_Cfg
-  case mode
-    I2CFMODE_ENA, 1000, 1_000_000:
-      mode := %0
-    I2CFMODE_DIS, 400, 400_000:
-      mode := %1
-    OTHER:
-      mode := %0
+    Read_Cfg
+    case mode
+        I2CFMODE_ENA, 1000, 1_000_000:
+            _i2cfm_ena := (0 << 11)
+        I2CFMODE_DIS, 400, 400_000:
+            _i2cfm_ena := (1 << 11)
+        OTHER:
+            return
 
-  _cfg_reg |= (mode << 11)
-  Write_Cfg (_cfg_reg)
+    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
+    Write_Cfg (_cfg_reg)
 
-PUB SetMeasureMode(mode) | refrate_tmp, adcres_tmp
+PUB SetMeasureMode(mode)
 ' Set measurement mode
 '   MMODE_CONT (0) - Continuous (default)
 '   MMODE_STEP (1) - Step
     Read_Cfg
     case mode
-        MMODE_CONT:
-            mode := %0
-        MMODE_STEP:
-            mode := %1
+        MMODE_CONT, MMODE_STEP:
+            _mmode := (mode << 6)
         OTHER:
             return
 
-    refrate_tmp := _cfg_reg & %1111
-    adcres_tmp := (_cfg_reg >> 4) & %11
-    _cfg_reg := ((_cfg_reg >> 7) << 7) | (mode << 6) | (adcres_tmp << 4) | refrate_tmp
+    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
     Write_Cfg (_cfg_reg)
 
-PUB SetOperationMode(mode)
+PUB SetOperationMode(mode)' | adcref_tmp, ee_tmp, i2cfm_tmp, mmode_tmp, adcres_tmp, refrate_tmp
 'Set Operation mode
 ' OPMODE_NORM (0) - Normal (default)
 ' OPMODE_SLEEP (1) - Sleep mode
-  Read_Cfg
-  case mode
-    OPMODE_NORM:
-      mode := %0
-    OPMODE_SLEEP:
-      mode := %1
-    OTHER:
-      mode := %0
-
-  _cfg_reg |= (mode << 7)
-  Write_Cfg (_cfg_reg)
+    Read_Cfg
+    case mode
+        OPMODE_NORM, OPMODE_SLEEP:
+            _opmode := (mode << 7)
+        OTHER:
+            return
+    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
+    Write_Cfg (_cfg_reg)
 
 'PUB SetPOR
 ' Power-On-Reset bit status
@@ -501,37 +500,37 @@ PUB SetRefreshRate(Hz)
 ' Set sensor refresh rate
 ' Valid values are 0, 0.5 or 5 for 0.5Hz, or 1 to 512 in powers of 2
 ' NOTE: Higher rates will yield noisier images
-  Read_Cfg
-  case Hz
-    0, 0.5, 5:
-      Hz := %1111
-    1:
-      Hz := %1110
-    2:
-      Hz := %1101
-    4:
-      Hz := %1100
-    8:
-      Hz := %1011
-    16:
-      Hz := %1010
-    32:
-      Hz := %1001
-    64:
-      Hz := %1000
-    128:
-      Hz := %0111
-    256:
-      Hz := %0110
-    512:
-      Hz := %0101
-    OTHER:
-      Hz := %1110 'Default to 1 Hz
+    Read_Cfg    'XXX Convert to lookup?
+    case Hz
+        0, 0.5, 5:
+            _refr_rate := %1111
+        1:
+            _refr_rate := %1110
+        2:
+            _refr_rate := %1101
+        4:
+            _refr_rate := %1100
+        8:
+            _refr_rate := %1011
+        16:
+            _refr_rate := %1010
+        32:
+            _refr_rate := %1001
+        64:
+            _refr_rate := %1000
+        128:
+            _refr_rate := %0111
+        256:
+            _refr_rate := %0110
+        512:
+            _refr_rate := %0101
+        OTHER:
+            return
 
-  _cfg_reg := (_cfg_reg >> 4) << 4
-  _cfg_reg |= Hz
-  Write_Cfg (_cfg_reg)
-  return _cfg_reg
+    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
+
+    Write_Cfg (_cfg_reg)
+    return _cfg_reg
 
 PUB Write_OSCTrim(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
 
@@ -570,6 +569,7 @@ PUB Write_Cfg(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
   _ackbit := i2c.write (msbyte_ck)
   _ackbit := i2c.write (msbyte)
   i2c.stop
+
   return (msbyte<<8)|lsbyte
 
 PUB dump_ee(ptr)' | ee_offset
