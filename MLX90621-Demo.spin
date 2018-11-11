@@ -19,6 +19,10 @@ CON
   CLK       = 1
   DATA      = 0
 
+    SCL     = 8
+    SDA     = 7
+    I2C_FREQ= 400_000
+
 OBJ
 
   cfg   : "core.con.client.activityboard"
@@ -31,7 +35,7 @@ OBJ
 
 VAR
 
-  word _ir_frame[64]
+  word _ir_frame[64]        '64 words for displayable frame, plus two more: PTAT and compensation pixel
   long _drawframe_stack[50]
   long _serframe_stack[50]
   long _adc_stack[50]
@@ -47,6 +51,9 @@ VAR
   long Vin_100
   long _offset
   word _cfg_reg
+  word _ptat_raw
+
+  long _nak
 
 PUB Main
 
@@ -74,10 +81,12 @@ PUB Main
 '    ser.Hex (therm.Read_Cfg, 8)
 '    ser.NewLine
 '    time.mSleep (100)
+'    therm.GetFrameExt (@_ir_frame)
     therm.GetFrame (@_ir_frame)
-'    therm.GetLine (1, @_ir_frame)
-'    therm.GetPixel (@_ir_frame, 4, 2)
-'    time.MSleep (250)
+
+'    therm.GetLine (@_ir_frame, 1)
+'    therm.GetPixel (@_ir_frame, 6, 3)
+'    therm.GetColumn (@_ir_frame, 4)
 
 PUB Constrain(val, lower, upper)
 
@@ -95,6 +104,7 @@ PUB DrawFrame | col, line, k, sx, sy, width, height, color, vs, vin, trow, tcol,
   maxtemp := 32767
   _offset := 1
 
+{
   oled.box(sx-1, sy-1, (width*20) + sx, (height*5) + sy, oled#White, 0)'Draw box surrounding thermal image
 
   repeat i from 0 to 95'Draw Color Scale
@@ -102,7 +112,7 @@ PUB DrawFrame | col, line, k, sx, sy, width, height, color, vs, vin, trow, tcol,
     '65535 max range from thermal sensor
     '95 max horizontal pixel range of OLED display
     '...so each step in the color scale is 689 (65535/95)
-
+}
 
 '  vs := string("Batt:")
 '  oled.write1x16String (vs, 5, 0, trow, oled#LightGrey, oled#Black)'(str,len,col,row,RGB,BRGB)
@@ -183,8 +193,7 @@ PUB serframe | line, col, k, color, tmax, tmin
 PUB keydaemon | cmd, volts, adcraw, soc
 
   adc.start (21, 20, 18, 19)'(cspin, sckpin, dipin, dopin)
-  ser.Start (115_200)
-  time.Sleep (3)
+  repeat until ser.Start (115_200)
   ser.Clear
   ser.Str (string("Serial terminal started", ser#NL))
   if _therm_cog
@@ -197,7 +206,10 @@ PUB keydaemon | cmd, volts, adcraw, soc
     therm.Stop
     ser.Stop
     repeat
-
+  ser.Str (string(ser#NL, "cfg reg: "))
+  ser.Hex (_cfg_reg, 8)
+  ser.Char (" ")
+  ser.Bin (_cfg_reg, 16)
   repeat
     repeat until cmd := ser.CharIn
     case cmd
@@ -216,10 +228,13 @@ PUB keydaemon | cmd, volts, adcraw, soc
         ser.Dec (_offset)
         ser.NewLine
       "a":
-        ser.Str (string("PTAT: "))
-        ser.Dec (therm.Read_PTAT)
+        ser.Str (string("PTAT Raw Data: "))
+        ser.Hex (_ir_frame.word[$40], 4)
         ser.NewLine
-      "b":
+        ser.Str (string("Ta: "))
+        ser.Dec (therm.Ta)
+        ser.NewLine
+      "b":  'XXX BROKEN
         adcraw := adc.read (0)
         volts := (((adcraw * 100) / 4095) * 50)
         ser.Str (string("Battery level: "))
@@ -232,8 +247,19 @@ PUB keydaemon | cmd, volts, adcraw, soc
         ser.Str (string("Init cfg reg: "))
         ser.Hex (_cfg_reg, 8)
         ser.NewLine
+      "d":
+        ser.Str (string("Debug Constants: "))
+        ser.Dec (therm.Calc_Consts)'Kt1=8436 Kt2=1 Vth25=2569500 PTAT=
+        ser.NewLine
+        ser.Str (string("PTAT Raw: "))
+        ser.Dec (_ptat_raw)
+        ser.NewLine
       "e":
         hexdump(@_ee_img)
+      "n":
+        ser.Str (string("NAK count: "))
+        ser.Dec (therm.readNAK)
+        ser.NewLine
       "t":
         dump_frame
       OTHER:
@@ -257,18 +283,26 @@ PUB dump_frame | line, col, k
       ser.Hex (_ir_frame.word[k], 4)
       ser.Char (" ")
     ser.NewLine
+  ser.NewLine
+  k++
+  ser.Hex (_ir_frame.word[k], 4)
+  ser.NewLine
+  k++
+  ser.Hex (_ir_frame.word[k], 4)
+  ser.NewLine
 
 PUB Setup
 
-  _therm_cog := therm.Start (8, 7, 400_000)
-  cognew(keydaemon, @_keydaemon_stack)
-  oled.Init(CS, DC, DATA, CLK, RST)
-  oled.clearDisplay
-  oled.AutoUpdateOn
-  oled.clearDisplay
-  oled.boxFillOn
-  cognew(DrawFrame, @_drawframe_stack)
-  _cfg_reg := therm.Setup
+    _therm_cog := therm.Startx (SCL, SDA, I2C_FREQ)
+    therm.Defaults
+    _cfg_reg := therm.SetRefreshRate (32)
+    cognew(keydaemon, @_keydaemon_stack)
+    oled.Init(CS, DC, DATA, CLK, RST)
+    oled.clearDisplay
+    oled.AutoUpdateOn
+    oled.clearDisplay
+    oled.boxFillOn
+    cognew(DrawFrame, @_drawframe_stack)
 
 DAT
 {
