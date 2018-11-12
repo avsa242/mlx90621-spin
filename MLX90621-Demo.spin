@@ -230,39 +230,12 @@ PUB keydaemon | cmd, volts, adcraw, soc
         ser.Str (string("Offset: "))
         ser.Dec (_offset)
         ser.NewLine
-      "a":
-        ser.Str (string("PTAT Raw Data: "))
-        ser.Hex (_ir_frame.word[$40], 4)
-        ser.NewLine
-        ser.Str (string("Ta: "))
-        ser.Dec (therm.Ta)
-        ser.NewLine
-      "b":  'XXX BROKEN
-        adcraw := adc.read (0)
-        volts := (((adcraw * 100) / 4095) * 50)
-        ser.Str (string("Battery level: "))
-        ser.Dec (volts)
-        ser.Str (string("mV  ("))
-        soc := (volts * 100) / 4200 '% of ADC full range -> 1 cell Volts -> % of 1 cell full charge
-        ser.Dec (soc)
-        ser.Str (string("%)", ser#NL))
       "c":
         ser.Str (string("Init cfg reg: "))
         ser.Hex (_cfg_reg, 8)
         ser.NewLine
-      "d":
-        ser.Str (string("Debug Constants: "))
-        ser.Dec (therm.Calc_Consts)'Kt1=8436 Kt2=1 Vth25=2569500 PTAT=
-        ser.NewLine
-        ser.Str (string("PTAT Raw: "))
-        ser.Dec (_ptat_raw)
-        ser.NewLine
       "e":
         hexdump(@_ee_img)
-      "n":
-        ser.Str (string("NAK count: "))
-        ser.Dec (therm.readNAK)
-        ser.NewLine
       "t":
         dump_frame
       OTHER:
@@ -300,10 +273,10 @@ PUB Setup
     therm.Defaults
     therm.SetRefreshRate (32)
     therm.SetMeasureMode (0)
-    therm.SetADCRes (18)
+    therm.SetADCRes (1)
     therm.SetADCReference (1)
-    therm.SetEEPROM (0)
-    therm.SetI2CFM (0)
+    therm.EnableEEPROM (TRUE)
+    therm.EnableI2CFM (TRUE)
     therm.SetOperationMode (0)
     cognew(keydaemon, @_keydaemon_stack)
     oled.Init(CS, DC, DATA, CLK, RST)

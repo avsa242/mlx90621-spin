@@ -144,15 +144,14 @@ PUB Defaults
   SetADCRes (18)
   SetMeasureMode (MMODE_CONT)
   SetOperationMode (OPMODE_NORM) '0019 XXX OPMODE_SLEEP unverified (returns 463E)
-  SetI2CFM (I2CFMODE_ENA)
-  SetEEPROM (EE_ENA)
+  EnableI2CFM (TRUE)
+  EnableEEPROM (TRUE)
   SetADCReference (ADCREF_LO)
 
   time.MSleep (5)
 
   Read_Cfg
   Read_OSCTrim
-  Calc_Consts
 
 PUB command (cmd, addr_start, addr_step, num_reads) | cmd_packet[2], ackbit
 
@@ -175,21 +174,6 @@ PRI readword: data_word | read_data
   i2c.stop
 
   data_word := (read_data.byte[1] << 8) | read_data.byte[0]
-
-PUB CheckPOR: flag
-' Power-On-Reset bit status
-' Bit must be set when uploading configuration register
-  Read_Cfg
-  flag := ((_cfg_reg >> 10) &1)
-  flag~~
-
-PUB GetCompPixel | rawpix
-
-  readData (@rawpix, $41, 0, 1)'buff_ptr, addr_start, addr_step, word_count)
-'  if rawpix > 32767  'Two's-complement
-'    rawpix:= rawpix - 65536
-'  return _comp_pix := rawpix
-  return _comp_pix := type.u16_s16 (rawpix)
 
 PUB GetLine(ptr_line, line) | rawpix[8], col, pixel
 
@@ -248,126 +232,6 @@ PUB GetFrameExt(ptr_frame) | line, col, rawpix[33], pixel
   word[ptr_frame][RAM_OFFS_CPIX] := rawpix.word[RAM_OFFS_CPIX]          ' and Compensation Pixel, too
   return _ackbit
  
-PUB IsMeasureRunning: flag
-
-  Read_Cfg
-  flag := ((_cfg_reg >> 9) & 1)
-  flag~~
-
-PUB readData(buff_ptr, addr_start, addr_step, word_count) | ackbit, cmd_packet[2]
-{  cmd_packet.byte[0] := SLAVE_WR
-  cmd_packet.byte[1] := cmd
-  cmd_packet.byte[2] := addr_start
-  cmd_packet.byte[3] := addr_step
-  cmd_packet.byte[4] := num_reads
-
-  i2c.start
-  ackbit := i2c.pwrite(@cmd_packet, 5)
-  if ackbit == i2c#NAK
-    _nak_count++
-}
-    cmd_packet.byte[0] := SLAVE_WR
-    cmd_packet.byte[1] := core#CMD_READREG
-    cmd_packet.byte[2] := addr_start
-    cmd_packet.byte[3] := addr_step
-    cmd_packet.byte[4] := word_count
-    
-    i2c.start
-    i2c.pwrite (@cmd_packet, 5)
-    i2c.start
-    i2c.write (SLAVE_RD)
-    i2c.pread (buff_ptr, word_count << 1, TRUE) '*2 = 81.6uS, << 1 = 71.8uS
-    i2c.stop
-{
-  command ($02, addr_start, addr_step, word_count)
-  i2c.start
-'  ackbit := i2c.write (MLX90621_ADDR|R)
-  i2c.write (SLAVE_RD)
-  i2c.pread (buff_ptr, word_count << 1, TRUE) '*2 = 81.6uS, << 1 = 74uS w/assign, 71.8uS w/out assign
-  i2c.stop
-  if ackbit == i2c#NAK
-    _nak_count++
-}
-PUB readNAK
-
-  return _nak_count
-
-PUB Calc_Consts | Scale
-
-  Scale := 100  'Scale factor for fixed-point math
-'  _adc_res := pow(2, _adc_res)'3-((_cfg_reg >> 4) & %11))'(_cfg_reg & %0011_0000) >> 4) )
-
-'' Consts for calculating Ta
-  _Vth_h := _ee_data.byte[EE_OFFS_VTH+1] '645F
-  _Vth_l := _ee_data.byte[EE_OFFS_VTH]
-  _Kt1_h := _ee_data.byte[EE_OFFS_KT1+1] '545E
-  _Kt1_l := _ee_data.byte[EE_OFFS_KT1]
-  _Kt2_h := _ee_data.byte[EE_OFFS_KT2+1] '5EB9
-  _Kt2_l := _ee_data.byte[EE_OFFS_KT2]
-  _Kt1_Scl := (_ee_data.byte[EE_OFFS_KT1SCL] >> 4) & $0F '8B
-  _Kt2_Scl := _ee_data.byte[EE_OFFS_KT2SCL] & $0F
-
-  _Vth25 := type.s16(_Vth_h, _Vth_l)
-  _Vth25 := (_Vth25/pow(2, _adc_res)) * Scale
-
-  _Kt1 := type.s16(_Kt1_h, _Kt1_l)
-  _Kt1 := (_Kt1*Scale)/((pow(2, _Kt1_Scl) * pow(2, _adc_res))){*Scale} 'Whole part
-
-  _Kt2 := type.s16(_Kt2_h, _Kt2_l)
-  _Kt2 := (_Kt2*Scale)/((pow(2, (_Kt2_Scl) + 10) * pow(2, _adc_res))) 'Page 15
-  
-  return _Vth25
-
-PUB ReadPTAT | read_data, lsbyte, msbyte, Scale, cmd_packet
-
-  Scale := 100
-  msbyte := lsbyte := 0
-  readData (@read_data, RAM_OFFS_PTAT, 0, 1)
-  _PTAT := type.u16(read_data.byte[1], read_data.byte[0])' * Scale
-
-PUB Ta
-''  Ta = ((-_Kt1 + sqrt(_Kt1^2 - 4Kt2[Vth(25)-PTAT_data])) / 2Kt2) + 25  '(degC)
-  return (_Kt1  * -1) + ^^(pow(_Kt1, 2) - (4 * _Kt2) * (_Vth25 - _PTAT) / (2 * _Kt2) ) + 25
-
-PUB calc_pixOffsetCompensation(col, line) | Ai, Ai_del, Ai_scl, A_com, Bi, Bi_scl, Acp, Bcp, Vir
-' XXX Change to process whole frame of a ptr_buf?
-  Vir := GetPixel (@_ir_frame, col, line)'Changed because of GetPixel() change
-
-  A_com := type.s16(_ee_data.byte[$D1], _ee_data.byte[$D0])
-  Ai_del := (_ee_data.byte[$00 + (col * 4) + line])
-  Ai_scl := (_ee_data.byte[$D9] & $F0)
-  Ai := (A_com + Ai_del * pow(2, Ai_scl)) / pow (2, _adc_res)
-
-  Bi := type.s8(_ee_data.byte[$40 + (col * 4) + line])
-  Bi_scl := (_ee_data.byte[$D9] & $0F)
-  _Vir_comp := Vir - (Ai + Bi * (Ta - 25))
-  return _Vir_comp
-
-PUB calc_comppixOffsetCompensation(col, line) | Ai, Ai_del, Ai_scl, A_com, Bi, Bi_scl, Acp, Bcp, Vir
-
-  Vir := GetCompPixel
-
-  A_com := (_ee_data.byte[$D1] << 4) | _ee_data.byte[$D0]
-  Ai_del := (_ee_data.byte[$00 + (col * 4) + line])
-  Ai_scl := (_ee_data.byte[$D9] & $F0)
-  Ai := (A_com + Ai_del * (2 * Ai_scl)) / pow (2, _adc_res)
-
-  Bi := _ee_data.byte[$40 + (col * 4) + line]
-  Bi_scl := (_ee_data.byte[$D9] & $0F)
-  _Vir_comp := Vir - (Ai + Bi * (Ta - 25))
-  return _Vir_comp
-
-
-PUB pow(a, b) | p
-
-  if b == 0
-    return 1
-  elseif b // 2 == 1
-    return a * pow(a, b - 1)
-  else
-    p := pow(a, b / 2)
-    return p * p
-
 PUB Read_Cfg | tmp 'XXX Remove? Just use readData instead?
 
     readData (@tmp, core#REG_CFG, 0, 1)
@@ -388,10 +252,8 @@ PUB Read_Cfg | tmp 'XXX Remove? Just use readData instead?
 
 PUB Read_OSCTrim | read_data, osctrim_data
 
-  command($02, $93, 0, 1)
-  read_data := readword
-  
-  osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
+    readData (@read_data, core#REG_OSC, 0, 1)'(buff_ptr, addr_start, addr_step, word_count)
+    osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
 
 PUB SetADCReference(mode)' | eetmp, i2cfmtmp, opmodetmp, mmodetmp, adcrestmp, refratetmp
 ' Set ADC reference high, low
@@ -409,56 +271,55 @@ PUB SetADCReference(mode)' | eetmp, i2cfmtmp, opmodetmp, mmodetmp, adcrestmp, re
     Write_Cfg (_cfg_reg)
   'TODO: Call Re-cal method here
 
-PUB SetADCRes(bits)' | refrate_tmp
+PUB SetADCRes(bits)
 ' Set ADC resolution
 ' NOTE: Updates the VAR _adc_res, as this is used in the various thermal correction calculations
 ' TODO:
 '   Create a wrapper re-cal method
     Read_Cfg
-    case bits
-        15:
-            _adcres := (%00 << 4)
-        16:
-            _adcres := (%01 << 4)
-        17:
-            _adcres := (%10 << 4)
-        18:
-            _adcres := (%11 << 4)
+    case lookdown(bits: 15..18)
+        1..4:
+            _adcres := (bits-15) << 4
         OTHER:
             return
 
     _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
 
     Write_Cfg (_cfg_reg)
-    _adc_res := 3-((_cfg_reg >> 4) & %11)'(_cfg_reg & %0011_0000) >> 4)  'Update the VAR used in calculations
+    _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
-PUB SetEEPROM(mode)'XXX Rename to EnableEEPROM, use boolean
-' Enable/disable the EEPROM
-'   EE_ENA, 0 - EEPROM enabled
-'   EE_DIS, 1 - EEPROM disabled
+PUB EnableEEPROM(enabled)
+' Enable/disable the sensor's built-in EEPROM
+'   TRUE, 1 - Sensor's built-in EEPROM enabled (default)
+'   FALSE, 0- Sensor's built-in EEPROM disabled (use with care -
+'               object will fail to restart if EEPROM is disabled.
+'               Cycle power in this case.)
     Read_Cfg
-    case mode
-        EE_ENA, EE_DIS:
-            _ee_ena := (mode << 12)
+    case ||enabled
+        0, 1:
+            _ee_ena := (1-||enabled) << 12
         OTHER:
             return
 
     _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
     Write_Cfg (_cfg_reg)
 
-PUB SetI2CFM(mode)'XXX Rename to EnableI2CFM, make boolean
-' Set I2C FM+ mode
-'   I2CFMODE_ENA (0), 1000, 1_000_000 - Max I2C bus speed/bit transfer rate up to 1000kbit/sec (default)
-'   I2CFMODE_DIS (1), 400, 400_000 - Max I2C bus speed/bit transfer rate up to 400kbit/sec
+PUB EnableI2CFM(enabled)
+' Enable/disable I2C Fast Mode mode
+'   TRUE, 1  - Max I2C bus speed/bit transfer rate up to 1000kbit/sec (default)
+'   FALSE, 0 - Max I2C bus speed/bit transfer rate up to 400kbit/sec
     Read_Cfg
-    case mode
+    case ||enabled
+        0, 1:
+            _i2cfm_ena := (1-||enabled) << 11
+        OTHER:
+            return
+{
         I2CFMODE_ENA, 1000, 1_000_000:
             _i2cfm_ena := (0 << 11)
         I2CFMODE_DIS, 400, 400_000:
             _i2cfm_ena := (1 << 11)
-        OTHER:
-            return
-
+}
     _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
     Write_Cfg (_cfg_reg)
 
@@ -598,6 +459,20 @@ PUB read_ee(ptr_ee_data) | ee_offset    'XXX CLEANUP...Use ptr_ee_data consisten
   repeat ee_offset from 0 to EE_SIZE-1
     byte[ptr_ee_data][ee_offset] := _ee_data.byte[ee_offset]
 
+PUB readData(buff_ptr, addr_start, addr_step, word_count) | ackbit, cmd_packet[2]
+'XXXPRI
+    cmd_packet.byte[0] := SLAVE_WR
+    cmd_packet.byte[1] := core#CMD_READREG
+    cmd_packet.byte[2] := addr_start
+    cmd_packet.byte[3] := addr_step
+    cmd_packet.byte[4] := word_count
+    
+    i2c.start
+    i2c.pwrite (@cmd_packet, 5)
+    i2c.start
+    i2c.write (SLAVE_RD)
+    i2c.pread (buff_ptr, word_count << 1, TRUE) '*2 = 81.6uS, << 1 = 71.8uS
+    i2c.stop
 
 DAT
 {
