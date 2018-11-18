@@ -156,28 +156,6 @@ PUB Defaults
     Read_Cfg
     Read_OSCTrim
 
-PUB command (cmd, addr_start, addr_step, num_reads) | cmd_packet[2], ackbit
-
-  cmd_packet.byte[0] := SLAVE_WR
-  cmd_packet.byte[1] := cmd
-  cmd_packet.byte[2] := addr_start
-  cmd_packet.byte[3] := addr_step
-  cmd_packet.byte[4] := num_reads
-
-  i2c.start
-  ackbit := i2c.pwrite(@cmd_packet, 5)
-  if ackbit == i2c#NAK
-    _nak_count++
-
-PRI readword: data_word | read_data
-
-  i2c.start
-  _ackbit := i2c.write (SLAVE_RD)
-  i2c.pread (@read_data, 2, TRUE)
-  i2c.stop
-
-  data_word := (read_data.byte[1] << 8) | read_data.byte[0]
-
 PUB GetLine(ptr_line, line) | rawpix[8], col, pixel
 
   if not lookdown(line: 0..3)
@@ -259,10 +237,10 @@ PUB Read_OSCTrim | read_data, osctrim_data
     osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
 
 PUB SetADCReference(mode)' | eetmp, i2cfmtmp, opmodetmp, mmodetmp, adcrestmp, refratetmp
-' Set ADC reference high, low
-'   ADCREF_HI (0) - ADC High reference enabled
-'   ADCREF_LO (1) - ADC Low reference enabled (default)
-' NOTE: Re-cal must be done after this method is called
+'' Set ADC reference high, low
+''   ADCREF_HI (0) - ADC High reference enabled
+''   ADCREF_LO (1) - ADC Low reference enabled (default)
+'' NOTE: Re-cal must be done after this method is called
     Read_Cfg
     case mode
         ADCREF_HI, ADCREF_LO:
@@ -274,10 +252,10 @@ PUB SetADCReference(mode)' | eetmp, i2cfmtmp, opmodetmp, mmodetmp, adcrestmp, re
   'TODO: Call Re-cal method here
 
 PUB SetADCRes(bits)
-' Set ADC resolution
-' NOTE: Updates the VAR _adc_res, as this is used in the various thermal correction calculations
-' TODO:
-'   Create a wrapper re-cal method
+'' Set ADC resolution
+'' NOTE: Updates the VAR _adc_res, as this is used in the various thermal correction calculations
+'' TODO:
+''   Create a wrapper re-cal method
     Read_Cfg
     case lookdown(bits: 15..18)
         1..4:
@@ -289,11 +267,11 @@ PUB SetADCRes(bits)
     _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
 PUB EnableEEPROM(enabled)
-' Enable/disable the sensor's built-in EEPROM
-'   TRUE, 1 - Sensor's built-in EEPROM enabled (default)
-'   FALSE, 0- Sensor's built-in EEPROM disabled (use with care -
-'               object will fail to restart if EEPROM is disabled.
-'               Cycle power in this case.)
+'' Enable/disable the sensor's built-in EEPROM
+''   TRUE, 1 - Sensor's built-in EEPROM enabled (default)
+''   FALSE, 0- Sensor's built-in EEPROM disabled (use with care -
+''               object will fail to restart if EEPROM is disabled.
+''               Cycle power in this case.)
     Read_Cfg
     case ||enabled
         0, 1:
@@ -304,9 +282,9 @@ PUB EnableEEPROM(enabled)
     Write_Cfg
 
 PUB EnableI2CFM(enabled)
-' Enable/disable I2C Fast Mode mode
-'   TRUE, 1  - Max I2C bus speed/bit transfer rate up to 1000kbit/sec (default)
-'   FALSE, 0 - Max I2C bus speed/bit transfer rate up to 400kbit/sec
+'' Enable/disable I2C Fast Mode mode
+''   TRUE, 1  - Max I2C bus speed/bit transfer rate up to 1000kbit/sec (default)
+''   FALSE, 0 - Max I2C bus speed/bit transfer rate up to 400kbit/sec
     Read_Cfg
     case ||enabled
         0, 1:
@@ -317,9 +295,9 @@ PUB EnableI2CFM(enabled)
     Write_Cfg
 
 PUB SetMeasureMode(mode)
-' Set measurement mode
-'   MMODE_CONT (0) - Continuous (default)
-'   MMODE_STEP (1) - Step
+'' Set measurement mode
+''   MMODE_CONT (0) - Continuous (default)
+''   MMODE_STEP (1) - Step
     Read_Cfg
     case mode
         MMODE_CONT, MMODE_STEP:
@@ -330,9 +308,9 @@ PUB SetMeasureMode(mode)
     Write_Cfg
 
 PUB SetOperationMode(mode)
-'Set Operation mode
-' OPMODE_NORM (0) - Normal (default)
-' OPMODE_SLEEP (1) - Sleep mode
+'' Set Operation mode
+''   OPMODE_NORM (0) - Normal (default)
+''   OPMODE_SLEEP (1) - Sleep mode
     Read_Cfg
     case mode
         OPMODE_NORM, OPMODE_SLEEP:
@@ -343,9 +321,9 @@ PUB SetOperationMode(mode)
     Write_Cfg
 
 PUB SetRefreshRate(Hz)
-' Set sensor refresh rate
-' Valid values are 0, 0.5 or 5 for 0.5Hz, or 1 to 512 in powers of 2
-' NOTE: Higher rates will yield noisier images
+'' Set sensor refresh rate
+'' Valid values are 0, 0.5 or 5 for 0.5Hz, or 1 to 512 in powers of 2
+'' NOTE: Higher rates will yield noisier images
     Read_Cfg    'XXX Convert to lookup?
     case Hz
         0, 0.5, 5:
@@ -416,7 +394,7 @@ PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
     return (msbyte<<8)|lsbyte
 
 PUB Dump_EE(ee_buf)
-' Make sure ee_buf is 256 bytes in size!
+'' Make sure ee_buf is 256 bytes in size!
     bytemove(ee_buf, @_ee_data, EE_SIZE-1)
 
 PUB Peek_EE(location)
@@ -451,6 +429,28 @@ PUB readData(buff_ptr, addr_start, addr_step, word_count) | ackbit, cmd_packet[2
     i2c.pread (buff_ptr, word_count << 1, TRUE) '*2 = 81.6uS, << 1 = 71.8uS
     i2c.stop
 
+{PUB command (cmd, addr_start, addr_step, num_reads) | cmd_packet[2], ackbit
+
+  cmd_packet.byte[0] := SLAVE_WR
+  cmd_packet.byte[1] := cmd
+  cmd_packet.byte[2] := addr_start
+  cmd_packet.byte[3] := addr_step
+  cmd_packet.byte[4] := num_reads
+
+  i2c.start
+  ackbit := i2c.pwrite(@cmd_packet, 5)
+  if ackbit == i2c#NAK
+    _nak_count++
+}
+{PRI readword: data_word | read_data
+
+  i2c.start
+  _ackbit := i2c.write (SLAVE_RD)
+  i2c.pread (@read_data, 2, TRUE)
+  i2c.stop
+
+  data_word := (read_data.byte[1] << 8) | read_data.byte[0]
+}
 DAT
 {
     --------------------------------------------------------------------------------------------------------
