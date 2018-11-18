@@ -375,21 +375,23 @@ PUB SetRefreshRate(Hz)
 
     Write_Cfg
 
-PUB Write_OSCTrim(val_word) | lsbyte, lsbyte_ck, msbyte, msbyte_ck
+PUB Write_OSCTrim(val_word) | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
 
-  lsbyte := val_word.byte[0]
-  msbyte := val_word.byte[1]
-  lsbyte_ck := (lsbyte - OSC_CKBYTE)           'Generate simple checksum values
-  msbyte_ck := (msbyte - OSC_CKBYTE)           'from least and most significant bytes
-  
-  i2c.start
-  _ackbit := i2c.write (SLAVE_WR)
-  _ackbit := i2c.write (core#CMD_WRITEREG_OSCTRIM)
-  _ackbit := i2c.write (lsbyte_ck)
-  _ackbit := i2c.write (lsbyte)
-  _ackbit := i2c.write (msbyte_ck)
-  _ackbit := i2c.write (msbyte)
-  i2c.stop
+    lsbyte := val_word.byte[0]
+    msbyte := val_word.byte[1]
+    lsbyte_ck := (lsbyte - OSC_CKBYTE)           'Generate simple checksum values
+    msbyte_ck := (msbyte - OSC_CKBYTE)           'from least and most significant bytes
+
+    cmd_packet.byte[0] := SLAVE_WR
+    cmd_packet.byte[1] := core#CMD_WRITEREG_OSCTRIM
+    cmd_packet.byte[2] := lsbyte_ck
+    cmd_packet.byte[3] := lsbyte
+    cmd_packet.byte[4] := msbyte_ck
+    cmd_packet.byte[5] := msbyte
+
+    i2c.start
+    i2c.pwrite (@cmd_packet, 6)
+    i2c.stop
 
 PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
 
@@ -410,16 +412,7 @@ PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
     i2c.start
     i2c.pwrite (@cmd_packet, 6)
     i2c.stop
-{
-    i2c.start                           'XXX PACKETIZE, OR USE REUSABLE WRITE METHOD
-    _ackbit := i2c.write (SLAVE_WR)
-    _ackbit := i2c.write (core#CMD_WRITEREG_CFG)
-    _ackbit := i2c.write (lsbyte_ck)
-    _ackbit := i2c.write (lsbyte)
-    _ackbit := i2c.write (msbyte_ck)
-    _ackbit := i2c.write (msbyte)
-    i2c.stop
-}
+
     return (msbyte<<8)|lsbyte
 
 PUB Dump_EE(ee_buf)
