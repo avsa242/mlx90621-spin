@@ -13,39 +13,42 @@
 
 CON
 
-    SLAVE_WR          = core#SLAVE_ADDR
-    SLAVE_RD          = core#SLAVE_ADDR|1
+    SLAVE_WR        = core#SLAVE_ADDR
+    SLAVE_RD        = core#SLAVE_ADDR|1
 
-    DEF_SCL           = 28
-    DEF_SDA           = 29
-    DEF_HZ            = 400_000
-    I2C_MAX_FREQ      = core#I2C_MAX_FREQ
+    DEF_SCL         = 28
+    DEF_SDA         = 29
+    DEF_HZ          = 400_000
+    I2C_MAX_FREQ    = core#I2C_MAX_FREQ
 
-    EE_SIZE           = 256
+    EE_SIZE         = 256
 
-    I2CFMODE_ENA      = 0
-    I2CFMODE_DIS      = 1
+    I2CFMODE_ENA    = 0
+    I2CFMODE_DIS    = 1
 
-    MMODE_CONT        = 0
-    MMODE_STEP        = 1
+    MMODE_CONT      = 0
+    MMODE_STEP      = 1
 
-    OPMODE_NORM       = 0
-    OPMODE_SLEEP      = 1
+    OPMODE_NORM     = 0
+    OPMODE_SLEEP    = 1
 
-    ADCREF_HI         = 0
-    ADCREF_LO         = 1
+    ADCREF_HI       = 0
+    ADCREF_LO       = 1
 
-    EE_ENA            = 0
-    EE_DIS            = 1
+    EE_ENA          = 0
+    EE_DIS          = 1
 
-    EE_OFFS_VTH       = $DA
-    EE_OFFS_KT1       = $DC
-    EE_OFFS_KT2       = $DE
-    EE_OFFS_KT1SCL    = $D2
-    EE_OFFS_KT2SCL    = $D2
+    EE_OFFS_VTH     = $DA
+    EE_OFFS_KT1     = $DC
+    EE_OFFS_KT2     = $DE
+    EE_OFFS_KT1SCL  = $D2
+    EE_OFFS_KT2SCL  = $D2
 
-    RAM_OFFS_PTAT     = $40
-    RAM_OFFS_CPIX     = $41
+    RAM_OFFS_PTAT   = $40
+    RAM_OFFS_CPIX   = $41
+
+    CFG_CKBYTE      = $55
+    OSC_CKBYTE      = $AA
 
 OBJ
 
@@ -373,13 +376,12 @@ PUB SetRefreshRate(Hz)
 
     Write_Cfg
 
-PUB Write_OSCTrim(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
+PUB Write_OSCTrim(val_word) | lsbyte, lsbyte_ck, msbyte, msbyte_ck
 
-  ck := $AA
   lsbyte := val_word.byte[0]
   msbyte := val_word.byte[1]
-  lsbyte_ck := (lsbyte - ck)           'Generate simple checksum values
-  msbyte_ck := (msbyte - ck)           'from least and most significant bytes 
+  lsbyte_ck := (lsbyte - OSC_CKBYTE)           'Generate simple checksum values
+  msbyte_ck := (msbyte - OSC_CKBYTE)           'from least and most significant bytes
   
   i2c.start
   _ackbit := i2c.write (SLAVE_WR)
@@ -390,18 +392,17 @@ PUB Write_OSCTrim(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
   _ackbit := i2c.write (msbyte)
   i2c.stop
 
-PUB Write_Cfg | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck '2716 before, 2516 after
+PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck
 
     _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
-    ck := $55                             'XXX MAKE CONSTANT
     lsbyte := _cfg_reg.byte[0]
     msbyte := _cfg_reg.byte[1]
-    msbyte |= %0100                     'Bit 10 of the data (i.e., bit 2 of the MSB) XXX REWRITE TO OR THIS IN BEFORE SEPARATING?
-                                        'is the POR/Brown-Out flag, and MUST be set
-                                        'to indicate the device hasn't been reset
+    msbyte |= %0100                             'Bit 10 of the data (i.e., bit 2 of the MSB) XXX REWRITE TO OR THIS IN BEFORE SEPARATING?
+                                                'is the POR/Brown-Out flag, and MUST be set
+                                                'to indicate the device hasn't been reset
 
-    lsbyte_ck := (lsbyte - ck)          'Generate simple checksum values
-    msbyte_ck := (msbyte - ck)          'from least and most significant bytes 
+    lsbyte_ck := (lsbyte - CFG_CKBYTE)          'Generate simple checksum values
+    msbyte_ck := (msbyte - CFG_CKBYTE)          'from least and most significant bytes
 
     i2c.start                           'XXX PACKETIZE, OR USE REUSABLE WRITE METHOD
     _ackbit := i2c.write (SLAVE_WR)
