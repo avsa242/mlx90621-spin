@@ -273,7 +273,7 @@ PUB Setup
     therm.Defaults
     therm.SetRefreshRate (32)
     therm.SetMeasureMode (0)
-    therm.SetADCRes (1)
+    therm.SetADCRes (18)
     therm.SetADCReference (1)
     therm.EnableEEPROM (TRUE)
     therm.EnableI2CFM (TRUE)

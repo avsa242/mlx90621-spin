@@ -49,6 +49,7 @@ CON
 
     CFG_CKBYTE      = $55
     OSC_CKBYTE      = $AA
+    POR_BIT         = %0000_0100_0000_0000
 
 OBJ
 
@@ -326,7 +327,6 @@ PUB SetMeasureMode(mode)
         OTHER:
             return
 
-
     Write_Cfg
 
 PUB SetOperationMode(mode)
@@ -391,18 +391,26 @@ PUB Write_OSCTrim(val_word) | lsbyte, lsbyte_ck, msbyte, msbyte_ck
   _ackbit := i2c.write (msbyte)
   i2c.stop
 
-PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck
+PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
 
-    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
+    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate | POR_BIT
     lsbyte := _cfg_reg.byte[0]
     msbyte := _cfg_reg.byte[1]
-    msbyte |= %0100                             'Bit 10 of the data (i.e., bit 2 of the MSB) XXX REWRITE TO OR THIS IN BEFORE SEPARATING?
-                                                'is the POR/Brown-Out flag, and MUST be set
-                                                'to indicate the device hasn't been reset
 
     lsbyte_ck := (lsbyte - CFG_CKBYTE)          'Generate simple checksum values
     msbyte_ck := (msbyte - CFG_CKBYTE)          'from least and most significant bytes
 
+    cmd_packet.byte[0] := SLAVE_WR
+    cmd_packet.byte[1] := core#CMD_WRITEREG_CFG
+    cmd_packet.byte[2] := lsbyte_ck
+    cmd_packet.byte[3] := lsbyte
+    cmd_packet.byte[4] := msbyte_ck
+    cmd_packet.byte[5] := msbyte
+
+    i2c.start
+    i2c.pwrite (@cmd_packet, 6)
+    i2c.stop
+{
     i2c.start                           'XXX PACKETIZE, OR USE REUSABLE WRITE METHOD
     _ackbit := i2c.write (SLAVE_WR)
     _ackbit := i2c.write (core#CMD_WRITEREG_CFG)
@@ -411,7 +419,7 @@ PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck
     _ackbit := i2c.write (msbyte_ck)
     _ackbit := i2c.write (msbyte)
     i2c.stop
-
+}
     return (msbyte<<8)|lsbyte
 
 PUB Dump_EE(ee_buf)
