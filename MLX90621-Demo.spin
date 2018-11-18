@@ -13,15 +13,15 @@ CON
   _xinfreq = cfg#_xinfreq
 
 '' OLED-96 I/O Pin assignments
-  CS        = 2
-  RST       = 4
-  DC        = 3
-  CLK       = 1
-  DATA      = 0
+    CS      = 2
+    RST     = 4
+    DC      = 3
+    CLK     = 1
+    DATA    = 0
 
     SCL     = 8
     SDA     = 7
-    I2C_FREQ= 400_000
+    I2C_FREQ= 1_000_000
 
 OBJ
 

@@ -267,8 +267,7 @@ PUB SetADCReference(mode)' | eetmp, i2cfmtmp, opmodetmp, mmodetmp, adcrestmp, re
         OTHER:
             return
 
-   _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
-    Write_Cfg (_cfg_reg)
+    Write_Cfg
   'TODO: Call Re-cal method here
 
 PUB SetADCRes(bits)
@@ -283,9 +282,7 @@ PUB SetADCRes(bits)
         OTHER:
             return
 
-    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
-
-    Write_Cfg (_cfg_reg)
+    Write_Cfg
     _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
 PUB EnableEEPROM(enabled)
@@ -301,8 +298,7 @@ PUB EnableEEPROM(enabled)
         OTHER:
             return
 
-    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
-    Write_Cfg (_cfg_reg)
+    Write_Cfg
 
 PUB EnableI2CFM(enabled)
 ' Enable/disable I2C Fast Mode mode
@@ -314,14 +310,8 @@ PUB EnableI2CFM(enabled)
             _i2cfm_ena := (1-||enabled) << 11
         OTHER:
             return
-{
-        I2CFMODE_ENA, 1000, 1_000_000:
-            _i2cfm_ena := (0 << 11)
-        I2CFMODE_DIS, 400, 400_000:
-            _i2cfm_ena := (1 << 11)
-}
-    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
-    Write_Cfg (_cfg_reg)
+
+    Write_Cfg
 
 PUB SetMeasureMode(mode)
 ' Set measurement mode
@@ -334,10 +324,10 @@ PUB SetMeasureMode(mode)
         OTHER:
             return
 
-    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
-    Write_Cfg (_cfg_reg)
 
-PUB SetOperationMode(mode)' | adcref_tmp, ee_tmp, i2cfm_tmp, mmode_tmp, adcres_tmp, refrate_tmp
+    Write_Cfg
+
+PUB SetOperationMode(mode)
 'Set Operation mode
 ' OPMODE_NORM (0) - Normal (default)
 ' OPMODE_SLEEP (1) - Sleep mode
@@ -347,15 +337,8 @@ PUB SetOperationMode(mode)' | adcref_tmp, ee_tmp, i2cfm_tmp, mmode_tmp, adcres_t
             _opmode := (mode << 7)
         OTHER:
             return
-    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
-    Write_Cfg (_cfg_reg)
 
-'PUB SetPOR
-' Power-On-Reset bit status
-' Bit must be set when uploading configuration register
-'  Read_Cfg
-'  Write_Cfg (_cfg_reg | (%1 << 10))
-'  _cfg_reg |= (%1 << 10)
+    Write_Cfg
 
 PUB SetRefreshRate(Hz)
 ' Set sensor refresh rate
@@ -388,10 +371,7 @@ PUB SetRefreshRate(Hz)
         OTHER:
             return
 
-    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
-
-    Write_Cfg (_cfg_reg)
-    return _cfg_reg
+    Write_Cfg
 
 PUB Write_OSCTrim(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
 
@@ -410,32 +390,33 @@ PUB Write_OSCTrim(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
   _ackbit := i2c.write (msbyte)
   i2c.stop
 
-PUB Write_Cfg(val_word) | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck
-'' val_word is MSB first
-  ck := $55                             'XXX MAKE CONSTANT
-  lsbyte := val_word.byte[0]
-  msbyte := val_word.byte[1]
-  msbyte |= %0100                       'Bit 10 of the data (i.e., bit 2 of the MSB) XXX REWRITE TO OR THIS IN BEFORE SEPARATING?
+PUB Write_Cfg | ck, lsbyte, lsbyte_ck, msbyte, msbyte_ck '2716 before, 2516 after
+
+    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate
+    ck := $55                             'XXX MAKE CONSTANT
+    lsbyte := _cfg_reg.byte[0]
+    msbyte := _cfg_reg.byte[1]
+    msbyte |= %0100                     'Bit 10 of the data (i.e., bit 2 of the MSB) XXX REWRITE TO OR THIS IN BEFORE SEPARATING?
                                         'is the POR/Brown-Out flag, and MUST be set
                                         'to indicate the device hasn't been reset
 
-  lsbyte_ck := (lsbyte - ck)            'Generate simple checksum values
-  msbyte_ck := (msbyte - ck)            'from least and most significant bytes 
+    lsbyte_ck := (lsbyte - ck)          'Generate simple checksum values
+    msbyte_ck := (msbyte - ck)          'from least and most significant bytes 
 
-  i2c.start                             'XXX PACKETIZE, OR USE REUSABLE WRITE METHOD
-  _ackbit := i2c.write (SLAVE_WR)
-  _ackbit := i2c.write (core#CMD_WRITEREG_CFG)
-  _ackbit := i2c.write (lsbyte_ck)
-  _ackbit := i2c.write (lsbyte)
-  _ackbit := i2c.write (msbyte_ck)
-  _ackbit := i2c.write (msbyte)
-  i2c.stop
+    i2c.start                           'XXX PACKETIZE, OR USE REUSABLE WRITE METHOD
+    _ackbit := i2c.write (SLAVE_WR)
+    _ackbit := i2c.write (core#CMD_WRITEREG_CFG)
+    _ackbit := i2c.write (lsbyte_ck)
+    _ackbit := i2c.write (lsbyte)
+    _ackbit := i2c.write (msbyte_ck)
+    _ackbit := i2c.write (msbyte)
+    i2c.stop
 
-  return (msbyte<<8)|lsbyte
+    return (msbyte<<8)|lsbyte
 
 PUB dump_ee(ptr)' | ee_offset
 ' Make sure ptr is 256 bytes in size!
-'  repeat ee_offset from 0 to EE_SIZE-1
+'  repeat ee_offset from 0 to EE_SIZE-1  'XXX Verify and remove commented code if ok
 '    byte[ptr][ee_offset] := peek_ee(ee_offset)
   bytemove(ptr, @_ee_data, EE_SIZE-1)
 
