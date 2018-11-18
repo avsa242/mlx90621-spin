@@ -93,7 +93,7 @@ PUB Startx(SCL_PIN, SDA_PIN, I2C_HZ): okay
                 okay := i2c.write(core#EE_SLAVE_ADDR)
                 i2c.stop
                 if (okay == i2c#ACK)
-                    read_ee(@_ee_data)                                  '...to read the EEPROM.
+                    Read_EE                                             '...to read the EEPROM.
                 else
                     return FALSE
                 
@@ -129,7 +129,7 @@ PUB Startx(SCL_PIN, SDA_PIN, I2C_HZ): okay
 
 PUB Stop
 
-  i2c.terminate
+    i2c.terminate
 
 PUB Ping
 '' "Pings" device and returns TRUE if present
@@ -140,21 +140,20 @@ PUB Ping
 
 PUB Defaults
 
-  Write_OSCTrim (peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
-'  Write_Cfg ($4638)' (peek_ee($F6)<<8) | peek_ee($F5) )'($4E39) '463E
-'  _cfg_reg := 0  
-  SetRefreshRate (1)
-  SetADCRes (18)
-  SetMeasureMode (MMODE_CONT)
-  SetOperationMode (OPMODE_NORM) '0019 XXX OPMODE_SLEEP unverified (returns 463E)
-  EnableI2CFM (TRUE)
-  EnableEEPROM (TRUE)
-  SetADCReference (ADCREF_LO)
+    Write_OSCTrim (peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
+    '  Write_Cfg ($4638)' (peek_ee($F6)<<8) | peek_ee($F5) )'($4E39) '463E
+    SetRefreshRate (1)
+    SetADCRes (18)
+    SetMeasureMode (MMODE_CONT)
+    SetOperationMode (OPMODE_NORM) '0019 XXX OPMODE_SLEEP unverified (returns 463E)
+    EnableI2CFM (TRUE)
+    EnableEEPROM (TRUE)
+    SetADCReference (ADCREF_LO)
 
-  time.MSleep (5)
+    time.MSleep (5)
 
-  Read_Cfg
-  Read_OSCTrim
+    Read_Cfg
+    Read_OSCTrim
 
 PUB command (cmd, addr_start, addr_step, num_reads) | cmd_packet[2], ackbit
 
@@ -415,31 +414,26 @@ PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck
 
     return (msbyte<<8)|lsbyte
 
-PUB dump_ee(ptr)' | ee_offset
-' Make sure ptr is 256 bytes in size!
-'  repeat ee_offset from 0 to EE_SIZE-1  'XXX Verify and remove commented code if ok
-'    byte[ptr][ee_offset] := peek_ee(ee_offset)
-  bytemove(ptr, @_ee_data, EE_SIZE-1)
+PUB Dump_EE(ee_buf)
+' Make sure ee_buf is 256 bytes in size!
+    bytemove(ee_buf, @_ee_data, EE_SIZE-1)
 
-PUB peek_ee(location)
+PUB Peek_EE(location)
 '' Return byte at 'location' in EEPROM memory
-  return _ee_data.byte[location]
+    return _ee_data.byte[location]
   
-PUB read_ee(ptr_ee_data) | ee_offset    'XXX CLEANUP...Use ptr_ee_data consistently
+PUB Read_EE
 '' Read EEPROM contents into RAM
-  bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
+    bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
 
-  i2c.start                           'Start reading at addr $00
-  _ackbit := i2c.write (core#EE_SLAVE_ADDR)
-  _ackbit := i2c.write ($00)
+    i2c.start                           'Start reading at addr $00
+    _ackbit := i2c.write (core#EE_SLAVE_ADDR)
+    _ackbit := i2c.write ($00)
 
-  i2c.start                           'Read in the EEPROM
-  _ackbit := i2c.write (core#EE_SLAVE_ADDR|1)
-  i2c.pread (@_ee_data, EE_SIZE-1, TRUE)
-  i2c.stop
-
-  repeat ee_offset from 0 to EE_SIZE-1
-    byte[ptr_ee_data][ee_offset] := _ee_data.byte[ee_offset]
+    i2c.start                           'Read in the EEPROM
+    _ackbit := i2c.write (core#EE_SLAVE_ADDR|1)
+    i2c.pread (@_ee_data, EE_SIZE-1, TRUE)
+    i2c.stop
 
 PUB readData(buff_ptr, addr_start, addr_step, word_count) | ackbit, cmd_packet[2]
 'XXXPRI
