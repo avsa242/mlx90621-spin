@@ -43,6 +43,7 @@ CON
     EE_OFFS_KT2     = $DE
     EE_OFFS_KT1SCL  = $D2
     EE_OFFS_KT2SCL  = $D2
+    EE_OFFS_OSCTRIM = $F7
 
     RAM_OFFS_PTAT   = $40
     RAM_OFFS_CPIX   = $41
@@ -62,9 +63,6 @@ VAR
 
     byte _ee_data[EE_SIZE]
     byte _osc_trim
-    byte _ackbit
-    long _nak
-    word _ir_frame[64]
     word _cfg_reg
     word _comp_pix
     byte _adc_res
@@ -72,8 +70,6 @@ VAR
     
     long _Vth_h, _Vth_l, _Vth25, _Kt1 , _Kt1_h, _Kt1_l, _Kt1_Scl, _Kt2, _Kt2_h, _Kt2_l, _Kt2_Scl, KtScl
     word _PTAT
-    
-    long _nak_count 'temporary
     
     word _cfgset_adcref, _cfgset_ee_ena, _cfgset_i2cfm_ena, _cfgset_opmode, _cfgset_mmode, _cfgset_adcres, _cfgset_refr_rate
     word _cfgflag_por_bit, _cfgflag_measuring
@@ -142,7 +138,7 @@ PUB Ping
 
 PUB Defaults
 
-    Write_OSCTrim (peek_ee ($F7)) ' Write osc trimming val extracted from EEPROM address $F7
+    Write_OSCTrim (peek_ee (EE_OFFS_OSCTRIM)) ' Write osc trimming val extracted from EEPROM address $F7
     '  Write_Cfg ($4638)' (peek_ee($F6)<<8) | peek_ee($F5) )'($4E39) '463E
     SetRefreshRate (1)
     SetADCRes (18)
@@ -156,116 +152,6 @@ PUB Defaults
 
     Read_Cfg
     Read_OSCTrim
-
-PUB GetLine(ptr_line, line) | rawpix[8], col, pixel
-
-  if not lookdown(line: 0..3)
-    return
-
-  readData (@rawpix, line, 4, 16)
-
-  repeat col from 0 to 15
-    pixel := (col * 4) + line
-    word[ptr_line][pixel] := type.u16_s16 (rawpix.word[col])
-
-PUB GetColumn(ptr_col, col) | rawpix[2], line, pixel
-
-  if not lookdown(col: 0..15)
-    return
-
-  readData (@rawpix, col * 4, 1, 4)
-
-  repeat line from 0 to 3
-    pixel := (col * 4) + line
-    word[ptr_col][pixel] := type.u16_s16 (rawpix.word[line])
-
-PUB GetPixel(ptr_frame, col, line) | rawpix, pixel
-
-  if not lookdown(col: 0..15) or not lookdown(line: 0..3)
-    return
-
-  pixel := (col * 4) + line 'Compute offset location in array of current pixel
-
-  readData (@rawpix, pixel, 0, 1)
-
-  word[ptr_frame][pixel] := type.u16_s16 (rawpix & $FFFF)
-
-  return _ir_frame.word[pixel] := rawpix
-
-PUB GetFrame(ptr_frame) | line, col, rawpix[32], pixel
-'' Gets frame from sensor and stores it in buffer at ptr_frame
-'' This buffer must be 32 longs/64 words
-  readData (@rawpix, $00, 1, 64)
-  repeat line from 0 to 3
-    repeat col from 0 to 15
-      pixel := (col * 4) + line       'Compute offset location in array of current pixel
-      word[ptr_frame][pixel] := type.u16_s16 (rawpix.word[pixel])
-
-PUB GetFrameExt(ptr_frame) | line, col, rawpix[33], pixel
-'' Gets frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at ptr_frame
-'' This buffer must be 33 longs/66 words
-  readData (@rawpix, $00, 1, 66)
-  repeat line from 0 to 3
-    repeat col from 0 to 15
-      pixel := (col * 4) + line       'Compute offset location in array of current pixel
-      word[ptr_frame][pixel] := type.u16_s16 (rawpix.word[pixel])
-
-  _PTAT := (word[ptr_frame][RAM_OFFS_PTAT] := rawpix.word[RAM_OFFS_PTAT]) * 100 ' Also get PTAT data
-  word[ptr_frame][RAM_OFFS_CPIX] := rawpix.word[RAM_OFFS_CPIX]          ' and Compensation Pixel, too
-  return _ackbit
- 
-PUB Read_Cfg | tmp 'XXX Remove? Just use readData instead?
-
-    readData (@tmp, core#REG_CFG, 0, 1)
-    
-    _cfg_reg := (tmp.byte[1] << 8) | tmp.byte[0]
-
-    _cfgset_adcref := _cfg_reg &       %0_1_0_0_0_0_0_0_0_0_00_0000
-    _cfgset_ee_ena := _cfg_reg &       %0_0_0_1_0_0_0_0_0_0_00_0000
-    _cfgset_i2cfm_ena := _cfg_reg &    %0_0_0_0_1_0_0_0_0_0_00_0000
-    _cfgflag_por_bit := _cfg_reg &     %0_0_0_0_0_1_0_0_0_0_00_0000
-    _cfgflag_measuring := _cfg_reg &   %0_0_0_0_0_0_1_0_0_0_00_0000
-    _cfgset_opmode := _cfg_reg &       %0_0_0_0_0_0_0_0_1_0_00_0000
-    _cfgset_mmode := _cfg_reg &        %0_0_0_0_0_0_0_0_0_1_00_0000
-    _cfgset_adcres := _cfg_reg &       %0_0_0_0_0_0_0_0_0_0_11_0000
-    _cfgset_refr_rate := _cfg_reg &    %0_0_0_0_0_0_0_0_0_0_00_1111
-
-    return _cfg_reg
-
-PUB Read_OSCTrim | read_data, osctrim_data
-
-    readData (@read_data, core#REG_OSC, 0, 1)
-    osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
-
-PUB SetADCReference(mode)' | eetmp, i2cfmtmp, opmodetmp, mmodetmp, adcrestmp, refratetmp
-'' Set ADC reference high, low
-''   ADCREF_HI (0) - ADC High reference enabled
-''   ADCREF_LO (1) - ADC Low reference enabled (default)
-'' NOTE: Re-cal must be done after this method is called
-    Read_Cfg
-    case mode
-        ADCREF_HI, ADCREF_LO:
-            _cfgset_adcref := (mode << 14)
-        OTHER:
-            return
-
-    Write_Cfg
-  'TODO: Call Re-cal method here
-
-PUB SetADCRes(bits)
-'' Set ADC resolution
-'' NOTE: Updates the VAR _adc_res, as this is used in the various thermal correction calculations
-'' TODO:
-''   Create a wrapper re-cal method
-    Read_Cfg
-    case lookdown(bits: 15..18)
-        1..4:
-            _cfgset_adcres := (bits-15) << 4
-        OTHER:
-            return
-
-    Write_Cfg
-    _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
 PUB EnableEEPROM(enabled)
 '' Enable/disable the sensor's built-in EEPROM
@@ -294,6 +180,116 @@ PUB EnableI2CFM(enabled)
             return
 
     Write_Cfg
+
+PUB GetColumn(ptr_col, col) | rawpix[2], line, pixel
+
+    if not lookdown(col: 0..15)
+        return
+
+    readData (@rawpix, col * 4, 1, 4)
+
+    repeat line from 0 to 3
+        pixel := (col * 4) + line
+        word[ptr_col][pixel] := type.u16_s16 (rawpix.word[line])
+
+PUB GetFrame(ptr_frame) | line, col, rawpix[32], pixel
+'' Gets frame from sensor and stores it in buffer at ptr_frame
+'' This buffer must be 32 longs/64 words
+    readData (@rawpix, $00, 1, 64)
+    repeat line from 0 to 3
+        repeat col from 0 to 15
+            pixel := (col * 4) + line       'Compute offset location in array of current pixel
+            word[ptr_frame][pixel] := type.u16_s16 (rawpix.word[pixel])
+
+PUB GetFrameExt(ptr_frame) | line, col, rawpix[33], pixel
+'' Gets frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at ptr_frame
+'' This buffer must be 33 longs/66 words
+    readData (@rawpix, $00, 1, 66)
+    repeat line from 0 to 3
+        repeat col from 0 to 15
+            pixel := (col * 4) + line       'Compute offset location in array of current pixel
+            word[ptr_frame][pixel] := type.u16_s16 (rawpix.word[pixel])
+
+    _PTAT := (word[ptr_frame][RAM_OFFS_PTAT] := rawpix.word[RAM_OFFS_PTAT]) * 100 ' Also get PTAT data
+    word[ptr_frame][RAM_OFFS_CPIX] := rawpix.word[RAM_OFFS_CPIX]          ' and Compensation Pixel, too
+
+PUB GetLine(ptr_line, line) | rawpix[8], col, pixel
+
+    if not lookdown(line: 0..3)
+        return
+
+    readData (@rawpix, line, 4, 16)
+
+    repeat col from 0 to 15
+        pixel := (col * 4) + line
+        word[ptr_line][pixel] := type.u16_s16 (rawpix.word[col])
+
+PUB GetPixel(ptr_frame, col, line) | rawpix, pixel
+
+    if not lookdown(col: 0..15) or not lookdown(line: 0..3)
+        return
+
+    pixel := (col * 4) + line 'Compute offset location in array of current pixel
+
+    readData (@rawpix, pixel, 0, 1)
+
+    word[ptr_frame][pixel] := type.u16_s16 (rawpix & $FFFF)
+
+    return ptr_frame.word[pixel] := rawpix
+
+PUB Read_Cfg | tmp 'XXX Remove? Just use readData instead?
+
+    readData (@tmp, core#REG_CFG, 0, 1)
+    
+    _cfg_reg := (tmp.byte[1] << 8) | tmp.byte[0]
+
+    _cfgset_adcref := _cfg_reg &       %0_1_0_0_0_0_0_0_0_0_00_0000
+    _cfgset_ee_ena := _cfg_reg &       %0_0_0_1_0_0_0_0_0_0_00_0000
+    _cfgset_i2cfm_ena := _cfg_reg &    %0_0_0_0_1_0_0_0_0_0_00_0000
+    _cfgflag_por_bit := _cfg_reg &     %0_0_0_0_0_1_0_0_0_0_00_0000
+    _cfgflag_measuring := _cfg_reg &   %0_0_0_0_0_0_1_0_0_0_00_0000
+    _cfgset_opmode := _cfg_reg &       %0_0_0_0_0_0_0_0_1_0_00_0000
+    _cfgset_mmode := _cfg_reg &        %0_0_0_0_0_0_0_0_0_1_00_0000
+    _cfgset_adcres := _cfg_reg &       %0_0_0_0_0_0_0_0_0_0_11_0000
+    _cfgset_refr_rate := _cfg_reg &    %0_0_0_0_0_0_0_0_0_0_00_1111
+
+    return _cfg_reg
+
+PUB Read_OSCTrim | read_data, osctrim_data
+
+    readData (@read_data, core#REG_OSC, 0, 1)
+    osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
+
+PUB SetADCReference(mode)
+'' Set ADC reference high, low
+''   ADCREF_HI (0) - ADC High reference enabled
+''   ADCREF_LO (1) - ADC Low reference enabled (default)
+'' NOTE: Re-cal must be done after this method is called
+    Read_Cfg
+    case mode
+        ADCREF_HI, ADCREF_LO:
+            _cfgset_adcref := (mode << 14)
+        OTHER:
+            return
+
+    Write_Cfg
+  'TODO: Call Re-cal method here
+
+PUB SetADCRes(bits)
+'' Set ADC resolution, in bits
+''  Valid values are 15 to 18
+'' NOTE: Updates the VAR _adc_res, as this is used in the various thermal correction calculations
+'' TODO:
+''   Create a wrapper re-cal method
+    Read_Cfg
+    case lookdown(bits: 15..18)
+        1..4:
+            _cfgset_adcres := (bits-15) << 4
+        OTHER:
+            return
+
+    Write_Cfg
+    _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
 PUB SetMeasureMode(mode)
 '' Set measurement mode
@@ -354,26 +350,30 @@ PUB SetRefreshRate(Hz)
 
     Write_Cfg
 
-PUB Write_OSCTrim(val_word) | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
+PUB Dump_EE(ee_buf)
+'' Copy downloaded EEPROM image to ee_buf
+'' NOTE: Make sure ee_buf is 256 bytes in size!
+    bytemove(ee_buf, @_ee_data, EE_SIZE-1)
 
-    lsbyte := val_word.byte[0]
-    msbyte := val_word.byte[1]
-    lsbyte_ck := (lsbyte - OSC_CKBYTE)           'Generate simple checksum values
-    msbyte_ck := (msbyte - OSC_CKBYTE)           'from least and most significant bytes
+PUB Peek_EE(location)
+'' Return byte at 'location' in EEPROM memory
+    return _ee_data.byte[location]
 
-    cmd_packet.byte[0] := SLAVE_WR
-    cmd_packet.byte[1] := core#CMD_WRITEREG_OSCTRIM
-    cmd_packet.byte[2] := lsbyte_ck
-    cmd_packet.byte[3] := lsbyte
-    cmd_packet.byte[4] := msbyte_ck
-    cmd_packet.byte[5] := msbyte
+PUB Read_EE
+'' Read EEPROM contents into RAM
+    bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
 
-    i2c.start
-    i2c.pwrite (@cmd_packet, 6)
+    i2c.start                           'Start reading at addr $00
+    i2c.write (core#EE_SLAVE_ADDR)
+    i2c.write ($00)
+
+    i2c.start                           'Read in the EEPROM
+    i2c.write (core#EE_SLAVE_ADDR|1)
+    i2c.pread (@_ee_data, EE_SIZE-1, TRUE)
     i2c.stop
 
 PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
-
+'' Write config register (automatically called from methods that modify fields within the register)
     _cfg_reg := _cfgset_adcref | _cfgset_ee_ena | _cfgset_i2cfm_ena | _cfgset_opmode | _cfgset_mmode | _cfgset_adcres | _cfgset_refr_rate | POR_BIT
 
     lsbyte := _cfg_reg.byte[0]
@@ -395,28 +395,27 @@ PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
 
     return (msbyte<<8)|lsbyte
 
-PUB Dump_EE(ee_buf)
-'' Make sure ee_buf is 256 bytes in size!
-    bytemove(ee_buf, @_ee_data, EE_SIZE-1)
+PUB Write_OSCTrim(val_word) | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
+'' Write oscillator trimming register
+'' NOTE: Value typically used is stored in the EEPROM image at offset EE_OFFS_OSCTRIM
+''  and varies per device.
+    lsbyte := val_word.byte[0]
+    msbyte := val_word.byte[1]
+    lsbyte_ck := (lsbyte - OSC_CKBYTE)           'Generate simple checksum values
+    msbyte_ck := (msbyte - OSC_CKBYTE)           'from least and most significant bytes
 
-PUB Peek_EE(location)
-'' Return byte at 'location' in EEPROM memory
-    return _ee_data.byte[location]
-  
-PUB Read_EE
-'' Read EEPROM contents into RAM
-    bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
+    cmd_packet.byte[0] := SLAVE_WR
+    cmd_packet.byte[1] := core#CMD_WRITEREG_OSCTRIM
+    cmd_packet.byte[2] := lsbyte_ck
+    cmd_packet.byte[3] := lsbyte
+    cmd_packet.byte[4] := msbyte_ck
+    cmd_packet.byte[5] := msbyte
 
-    i2c.start                           'Start reading at addr $00
-    _ackbit := i2c.write (core#EE_SLAVE_ADDR)
-    _ackbit := i2c.write ($00)
-
-    i2c.start                           'Read in the EEPROM
-    _ackbit := i2c.write (core#EE_SLAVE_ADDR|1)
-    i2c.pread (@_ee_data, EE_SIZE-1, TRUE)
+    i2c.start
+    i2c.pwrite (@cmd_packet, 6)
     i2c.stop
 
-PUB readData(buff_ptr, addr_start, addr_step, word_count) | ackbit, cmd_packet[2]
+PUB readData(buff_ptr, addr_start, addr_step, word_count) | cmd_packet[2]
 'XXXPRI
     cmd_packet.byte[0] := SLAVE_WR
     cmd_packet.byte[1] := core#CMD_READREG
