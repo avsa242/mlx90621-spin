@@ -75,7 +75,8 @@ VAR
     
     long _nak_count 'temporary
     
-    word _adcref, _ee_ena, _i2cfm_ena, _opmode, _mmode, _adcres, _refr_rate, _por_bit, _measuring
+    word _cfgset_adcref, _cfgset_ee_ena, _cfgset_i2cfm_ena, _cfgset_opmode, _cfgset_mmode, _cfgset_adcres, _cfgset_refr_rate
+    word _cfgflag_por_bit, _cfgflag_measuring
 
 PUB Null
 ''This is not a top-level object
@@ -219,21 +220,21 @@ PUB Read_Cfg | tmp 'XXX Remove? Just use readData instead?
     
     _cfg_reg := (tmp.byte[1] << 8) | tmp.byte[0]
 
-    _adcref := _cfg_reg &       %0_1_0_0_0_0_0_0_0_0_00_0000 
-    _ee_ena := _cfg_reg &       %0_0_0_1_0_0_0_0_0_0_00_0000
-    _i2cfm_ena := _cfg_reg &    %0_0_0_0_1_0_0_0_0_0_00_0000
-    _por_bit := _cfg_reg &      %0_0_0_0_0_1_0_0_0_0_00_0000
-    _measuring := _cfg_reg &    %0_0_0_0_0_0_1_0_0_0_00_0000
-    _opmode := _cfg_reg &       %0_0_0_0_0_0_0_0_1_0_00_0000
-    _mmode := _cfg_reg &        %0_0_0_0_0_0_0_0_0_1_00_0000
-    _adcres := _cfg_reg &       %0_0_0_0_0_0_0_0_0_0_11_0000
-    _refr_rate := _cfg_reg &    %0_0_0_0_0_0_0_0_0_0_00_1111
+    _cfgset_adcref := _cfg_reg &       %0_1_0_0_0_0_0_0_0_0_00_0000
+    _cfgset_ee_ena := _cfg_reg &       %0_0_0_1_0_0_0_0_0_0_00_0000
+    _cfgset_i2cfm_ena := _cfg_reg &    %0_0_0_0_1_0_0_0_0_0_00_0000
+    _cfgflag_por_bit := _cfg_reg &     %0_0_0_0_0_1_0_0_0_0_00_0000
+    _cfgflag_measuring := _cfg_reg &   %0_0_0_0_0_0_1_0_0_0_00_0000
+    _cfgset_opmode := _cfg_reg &       %0_0_0_0_0_0_0_0_1_0_00_0000
+    _cfgset_mmode := _cfg_reg &        %0_0_0_0_0_0_0_0_0_1_00_0000
+    _cfgset_adcres := _cfg_reg &       %0_0_0_0_0_0_0_0_0_0_11_0000
+    _cfgset_refr_rate := _cfg_reg &    %0_0_0_0_0_0_0_0_0_0_00_1111
 
     return _cfg_reg
 
 PUB Read_OSCTrim | read_data, osctrim_data
 
-    readData (@read_data, core#REG_OSC, 0, 1)'(buff_ptr, addr_start, addr_step, word_count)
+    readData (@read_data, core#REG_OSC, 0, 1)
     osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
 
 PUB SetADCReference(mode)' | eetmp, i2cfmtmp, opmodetmp, mmodetmp, adcrestmp, refratetmp
@@ -244,7 +245,7 @@ PUB SetADCReference(mode)' | eetmp, i2cfmtmp, opmodetmp, mmodetmp, adcrestmp, re
     Read_Cfg
     case mode
         ADCREF_HI, ADCREF_LO:
-            _adcref := (mode << 14)
+            _cfgset_adcref := (mode << 14)
         OTHER:
             return
 
@@ -259,7 +260,7 @@ PUB SetADCRes(bits)
     Read_Cfg
     case lookdown(bits: 15..18)
         1..4:
-            _adcres := (bits-15) << 4
+            _cfgset_adcres := (bits-15) << 4
         OTHER:
             return
 
@@ -275,7 +276,7 @@ PUB EnableEEPROM(enabled)
     Read_Cfg
     case ||enabled
         0, 1:
-            _ee_ena := (1-||enabled) << 12
+            _cfgset_ee_ena := (1-||enabled) << 12
         OTHER:
             return
 
@@ -288,7 +289,7 @@ PUB EnableI2CFM(enabled)
     Read_Cfg
     case ||enabled
         0, 1:
-            _i2cfm_ena := (1-||enabled) << 11
+            _cfgset_i2cfm_ena := (1-||enabled) << 11
         OTHER:
             return
 
@@ -301,7 +302,7 @@ PUB SetMeasureMode(mode)
     Read_Cfg
     case mode
         MMODE_CONT, MMODE_STEP:
-            _mmode := (mode << 6)
+            _cfgset_mmode := (mode << 6)
         OTHER:
             return
 
@@ -314,7 +315,7 @@ PUB SetOperationMode(mode)
     Read_Cfg
     case mode
         OPMODE_NORM, OPMODE_SLEEP:
-            _opmode := (mode << 7)
+            _cfgset_opmode := (mode << 7)
         OTHER:
             return
 
@@ -327,27 +328,27 @@ PUB SetRefreshRate(Hz)
     Read_Cfg    'XXX Convert to lookup?
     case Hz
         0, 0.5, 5:
-            _refr_rate := %1111
+            _cfgset_refr_rate := %1111
         1:
-            _refr_rate := %1110
+            _cfgset_refr_rate := %1110
         2:
-            _refr_rate := %1101
+            _cfgset_refr_rate := %1101
         4:
-            _refr_rate := %1100
+            _cfgset_refr_rate := %1100
         8:
-            _refr_rate := %1011
+            _cfgset_refr_rate := %1011
         16:
-            _refr_rate := %1010
+            _cfgset_refr_rate := %1010
         32:
-            _refr_rate := %1001
+            _cfgset_refr_rate := %1001
         64:
-            _refr_rate := %1000
+            _cfgset_refr_rate := %1000
         128:
-            _refr_rate := %0111
+            _cfgset_refr_rate := %0111
         256:
-            _refr_rate := %0110
+            _cfgset_refr_rate := %0110
         512:
-            _refr_rate := %0101
+            _cfgset_refr_rate := %0101
         OTHER:
             return
 
@@ -373,7 +374,8 @@ PUB Write_OSCTrim(val_word) | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2
 
 PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
 
-    _cfg_reg := _adcref | _ee_ena | _i2cfm_ena | _opmode | _mmode | _adcres | _refr_rate | POR_BIT
+    _cfg_reg := _cfgset_adcref | _cfgset_ee_ena | _cfgset_i2cfm_ena | _cfgset_opmode | _cfgset_mmode | _cfgset_adcres | _cfgset_refr_rate | POR_BIT
+
     lsbyte := _cfg_reg.byte[0]
     msbyte := _cfg_reg.byte[1]
 
