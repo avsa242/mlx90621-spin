@@ -89,35 +89,19 @@ PUB Startx(SCL_PIN, SDA_PIN, I2C_HZ): okay
         if I2C_HZ =< core#I2C_MAX_FREQ
             if okay := i2c.setupx (SCL_PIN, SDA_PIN, core#EE_MAX_FREQ)  'First, start the I2C object...
                 time.MSleep (3)
-                i2c.start
-                okay := i2c.write(core#EE_SLAVE_ADDR)
-                i2c.stop
-                if (okay == i2c#ACK)
+                if i2c.present (core#EE_SLAVE_ADDR)
                     Read_EE                                             '...to read the EEPROM.
-                else
-                    return FALSE
-                
-                i2c.terminate                                           'Shut it down.
-                
-                ifnot okay := i2c.setupx (SCL_PIN, SDA_PIN, I2C_HZ)     'Then start it back up,
-                      return FALSE                                      ' but this time setup for the sensor
-                time.MSleep (5)
-
-                if Ping                                                 'Check for response from device
-                    return okay
+                    i2c.terminate                                       'Shut it down.
+                    if okay := i2c.setupx (SCL_PIN, SDA_PIN, I2C_HZ)    'Then start it back up,
+                        time.MSleep (5)                                 ' but this time setup for the sensor
+                        if i2c.present (SLAVE_WR)                       'Check for response from device
+                            return okay
 
     return FALSE                                                        'If we got here, something went wrong
 
 PUB Stop
 
     i2c.terminate
-
-PUB Ping
-'' "Pings" device and returns TRUE if present
-    i2c.start
-    result := i2c.write (SLAVE_WR)
-    i2c.stop
-    return (result == i2c#ACK)
 
 PUB Defaults
 
