@@ -6,7 +6,7 @@
      16x4 IR array (I2C).
     Copyright (c) 2018
     Started: Jan 14, 2018
-    Updated: Nov 11, 2018
+    Updated: Mar 13, 2019
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -107,13 +107,13 @@ PUB Defaults
 
     Write_OSCTrim (peek_ee (EE_OFFS_OSCTRIM)) ' Write osc trimming val extracted from EEPROM address $F7
 '    _cfg_reg := (peek_ee(EE_OFFS_CFGH) << 8) | peek_ee(EE_OFFS_CFGL) & $FFFF
-    SetRefreshRate (1)
-    SetADCRes (18)
-    SetMeasureMode (MMODE_CONT)
-    SetOperationMode (OPMODE_NORM) '0019 XXX OPMODE_SLEEP unverified (returns 463E)
-    EnableI2CFM (TRUE)
-    EnableEEPROM (TRUE)
-    SetADCReference (ADCREF_LO)
+    RefreshRate (1)
+    ADCRes (18)
+    MeasureMode (MMODE_CONT)
+    OperationMode (OPMODE_NORM) '0019 XXX OPMODE_SLEEP unverified (returns 463E)
+    I2CFM (TRUE)
+    EEPROM (TRUE)
+    ADCReference (ADCREF_LO)
     Write_Cfg
 
     time.MSleep (5)
@@ -121,7 +121,7 @@ PUB Defaults
     Read_Cfg
     Read_OSCTrim
 
-PUB EnableEEPROM(enabled)
+PUB EEPROM(enabled)
 '' Enable/disable the sensor's built-in EEPROM
 ''   TRUE, 1 - Sensor's built-in EEPROM enabled (default)
 ''   FALSE, 0- Sensor's built-in EEPROM disabled (use with care -
@@ -136,7 +136,7 @@ PUB EnableEEPROM(enabled)
 
     Write_Cfg
 
-PUB EnableI2CFM(enabled)
+PUB I2CFM(enabled)
 '' Enable/disable I2C Fast Mode mode
 ''   TRUE, 1  - Max I2C bus speed/bit transfer rate up to 1000kbit/sec (default)
 ''   FALSE, 0 - Max I2C bus speed/bit transfer rate up to 400kbit/sec
@@ -228,7 +228,7 @@ PUB Read_OSCTrim | read_data, osctrim_data
     readData (@read_data, core#REG_OSC, 0, 1)
     osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
 
-PUB SetADCReference(mode)
+PUB ADCReference(mode)
 '' Set ADC reference high, low
 ''   ADCREF_HI (0) - ADC High reference enabled
 ''   ADCREF_LO (1) - ADC Low reference enabled (default)
@@ -243,7 +243,7 @@ PUB SetADCReference(mode)
     Write_Cfg
   'TODO: Call Re-cal method here
 
-PUB SetADCRes(bits)
+PUB ADCRes(bits)
 '' Set ADC resolution, in bits
 ''  Valid values are 15 to 18
 '' NOTE: Updates the VAR _adc_res, as this is used in the various thermal correction calculations
@@ -259,7 +259,7 @@ PUB SetADCRes(bits)
     Write_Cfg
     _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
-PUB SetMeasureMode(mode)
+PUB MeasureMode(mode)
 '' Set measurement mode
 ''   MMODE_CONT (0) - Continuous (default)
 ''   MMODE_STEP (1) - Step
@@ -272,7 +272,7 @@ PUB SetMeasureMode(mode)
 
     Write_Cfg
 
-PUB SetOperationMode(mode)
+PUB OperationMode(mode)
 '' Set Operation mode
 ''   OPMODE_NORM (0) - Normal (default)
 ''   OPMODE_SLEEP (1) - Sleep mode
@@ -285,7 +285,7 @@ PUB SetOperationMode(mode)
 
     Write_Cfg
 
-PUB SetRefreshRate(Hz)
+PUB RefreshRate(Hz)
 '' Set sensor refresh rate
 '' Valid values are 0, 0.5 or 5 for 0.5Hz, or 1 to 512 in powers of 2
 '' NOTE: Higher rates will yield noisier images
