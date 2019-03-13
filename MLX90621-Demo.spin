@@ -25,12 +25,11 @@ CON
 
 OBJ
 
-  cfg   : "core.con.client.activityboard"
+  cfg   : "core.con.boardcfg.flip"
   ser   : "com.serial.terminal"
   time  : "time"
   therm : "sensor.thermal.array.mlx90621"
   oled  : "display.oled96"
-  adc   : "jm_adc124s021"
   int   : "string.integer"
 
 VAR
@@ -52,8 +51,6 @@ VAR
   long _offset
   word _cfg_reg
   word _ptat_raw
-
-  long _nak
 
 PUB Main
 
@@ -92,77 +89,69 @@ PUB Constrain(val, lower, upper)
 
   return lower #> val <# upper
 
-PUB DrawFrame | col, line, k, sx, sy, width, height, color, vs, vin, trow, tcol, i, mintemp, maxtemp
+PUB DrawFrame | col, line, sx, sy, width, height, color, i, k, buf
 
-  sx := 7
-  sy := 5
-  width := 4
-  height := 4
-  trow := 7*(6)
-  tcol := 5*(7)
-  mintemp := 32767
-  maxtemp := 32767
-  _offset := 1
+    sx := 7           ' Starting position of thermal image
+    sy := 5
+    width := 4        ' Size of each pixel
+    height := 4
 
+'' Draw box surrounding thermal image
+    oled.box(sx-2, sy-2, (width*20) + sx+1, (height*5) + sy+1, oled#White, 0)
+
+'' Draw Color Scale
+''  65535 max range from thermal sensor
+''  95 max horizontal pixel range of OLED display
+''  ...so each step in the color scale is 689 (65535/95)
+    repeat i from 0 to 95
+        oled.line (i, (height*5)+sy+3, i, (height*5)+sy+11, GetColor (i*689))
+
+'' Draw the thermal image
+    buf := oled.getBuffer
+    repeat
+        repeat line from 0 to 3
+            repeat col from 0 to 15
+                k := (col * 4) + line
+                word[buf][k] := GetColor ((_ir_frame.word[k])+_offset)
+        oled.WRITEBUFF (DATA, CLK, CS, 1024, buf)
+'        wordmove(buf, @_ir_frame, 64)
 {
-  oled.box(sx-1, sy-1, (width*20) + sx, (height*5) + sy, oled#White, 0)'Draw box surrounding thermal image
-
-  repeat i from 0 to 95'Draw Color Scale
-    oled.line (i, (height*5)+sy+2, i, (height*5)+sy+10, GetColor (i*689))
-    '65535 max range from thermal sensor
-    '95 max horizontal pixel range of OLED display
-    '...so each step in the color scale is 689 (65535/95)
+    repeat
+        repeat line from 0 to 3
+            repeat col from 0 to 15
+                k := (col * 4) + line
+                color := GetColor ((_ir_frame.word[k])+_offset)
+                oled.box((col * 5) + sx, (line * 5)+sy, (col * 5) + sx + width, (line * 5) + sy + height, color, color)
 }
-
-'  vs := string("Batt:")
-'  oled.write1x16String (vs, 5, 0, trow, oled#LightGrey, oled#Black)'(str,len,col,row,RGB,BRGB)
-'  repeat
-'    oled.write1x16String (Vin_100, 3, tcol, trow, oled#LightGrey, oled#Black)'(str,len,col,row,RGB,BRGB)
-
-  repeat
-'    oled.write1x16String (int.DecPadded (mintemp, 5), 5, 0, trow, oled#LightGrey, oled#Black)'(str,len,col,row,RGB,BRGB)
-'    oled.write1x16String (int.DecPadded (maxtemp, 5), 5, 0, trow+7+1, oled#LightGrey, oled#Black)'(str,len,col,row,RGB,BRGB)
-    repeat line from 0 to 3
-      repeat col from 0 to 15
-        k := (col * 4) + line
-        color := GetColor ((_ir_frame.word[k])+_offset)
-        oled.box((col * 5) + sx, (line * 5)+sy, (col * 5) + sx + width, (line * 5) + sy + height, color, color)
-'        if _ir_frame.word[k] < mintemp
-'          mintemp := _ir_frame.word[k]
-'        if _ir_frame.word[k] > maxtemp
-'          maxtemp := _ir_frame.word[k]
-
 PUB GetColor(val) | red, green, blue, inmax, outmax, divisor
 
-  inmax := 65535
-  outmax := 255
-  divisor := Constrain (inmax, 0, 65535)/outmax
+    inmax := 65535
+    outmax := 255
+    divisor := Constrain (inmax, 0, 65535)/outmax
 
-  if val => a_min and val =< a_max
-    red := Constrain ((val/divisor), 0, 255)
-    green := 0
-    blue := Constrain ((val/divisor), 0, 255)
-
-  elseif val => b_min and val =< b_max
-    red := Constrain (255-(val/divisor), 0, 255)
-    green := 0
-    blue := 255
-
-  elseif val => c_min and val =< c_max
-    red := Constrain ((val/divisor), 0, 255)
-    green := Constrain ((val/divisor), 0, 255)
-    blue := Constrain (255-(val/divisor), 0, 255)
-
-  elseif val => d_min and val =< d_max
-    red := 255
-    green := 255
-    blue := Constrain ((val/divisor), 0, 255)
-
+    case val
+        a_min..a_max:
+            red := Constrain ((val/divisor), 0, 255)
+            green := 0
+            blue := Constrain ((val/divisor), 0, 255)
+        b_min..b_max:
+            red := Constrain (255-(val/divisor), 0, 255)
+            green := 0
+            blue := 255
+        c_min..c_max:
+            red := Constrain ((val/divisor), 0, 255)
+            green := Constrain ((val/divisor), 0, 255)
+            blue := Constrain (255-(val/divisor), 0, 255)
+        d_min..d_max:
+            red := 255
+            green := 255
+            blue := Constrain ((val/divisor), 0, 255)
+        OTHER:
 ' RGB888 format
-'  return (red << 16) | (green << 8) | blue
+'    return (red << 16) | (green << 8) | blue
 
 ' RGB565 format
-  return ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
+    return ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
 
 PUB serframe | line, col, k, color, tmax, tmin
 
@@ -171,7 +160,6 @@ PUB serframe | line, col, k, color, tmax, tmin
 
   repeat
     ser.Position (0, 0)
-    ser.Clear
     repeat line from 0 to 3
       repeat col from 0 to 15
         k := (col * 4) + line
@@ -190,94 +178,87 @@ PUB serframe | line, col, k, color, tmax, tmin
 '        ser.Char (" ")
 '      ser.NewLine
 
-PUB keydaemon | cmd, volts, adcraw, soc
+PUB keydaemon | cmd
 
-  adc.start (21, 20, 18, 19)'(cspin, sckpin, dipin, dopin)
-  repeat until ser.Start (115_200)
-  ser.Clear
-  ser.Str (string("Serial terminal started", ser#NL))
-  if _therm_cog
-    ser.Str (string("MLX90621 object started on cog "))
-    ser.Dec (_therm_cog)
+    repeat until ser.Start (115_200)
+    ser.Clear
+    ser.Str (string("Serial terminal started", ser#NL))
+    if _therm_cog
+        ser.Str (string("MLX90621 object started on cog "))
+        ser.Dec (_therm_cog)
+        ser.NewLine
+    else
+        ser.Str (string("Error: MLX90621 object failed to start - halting", ser#NL))
+        time.MSleep (5)
+        oled.stop
+        therm.Stop
+        ser.Stop
+        repeat
+    ser.Str (string(ser#NL, "cfg reg: "))
+    ser.Hex (_cfg_reg := therm.Read_Cfg, 8)
+    ser.Char (" ")
+    ser.Bin (_cfg_reg, 16)
     ser.NewLine
-  else
-    ser.Str (string("Error: MLX90621 object failed to start - halting", ser#NL))
-    time.MSleep (5)
-    oled.stop
-    therm.Stop
-    ser.Stop
-    repeat
-  ser.Str (string(ser#NL, "cfg reg: "))
-  ser.Hex (_cfg_reg := therm.Read_Cfg, 8)
-  ser.Char (" ")
-  ser.Bin (_cfg_reg, 16)
-  ser.NewLine
 
-  repeat
-    repeat until cmd := ser.CharIn
-    case cmd
-      "-":
-        _offset-=1000
-        if _offset < 0
-          _offset := 0
-        ser.Str (string("Offset: "))
-        ser.Dec (_offset)
-        ser.NewLine
-      "=":
-        _offset+=1000
-        if _offset > 65535
-          _offset := 65535
-        ser.Str (string("Offset: "))
-        ser.Dec (_offset)
-        ser.NewLine
-      "c":
-        ser.Str (string("Init cfg reg: "))
-        ser.Hex (_cfg_reg, 8)
-        ser.NewLine
-      "e":
-        hexdump(@_ee_img)
-      "t":
-        dump_frame
-      OTHER:
+    repeat
+        repeat until cmd := ser.CharIn
+        case cmd
+            "-":
+                _offset-=1000
+                if _offset < 0
+                    _offset := 0
+                ser.Str (string("Offset: "))
+                ser.Dec (_offset)
+                ser.NewLine
+            "=":
+                _offset+=1000
+                if _offset > 65535
+                    _offset := 65535
+                ser.Str (string("Offset: "))
+                ser.Dec (_offset)
+                ser.NewLine
+            "c":
+                ser.Str (string("Init cfg reg: "))
+                ser.Hex (_cfg_reg, 8)
+                ser.NewLine
+            "e":
+                hexdump(@_ee_img)
+            "t":
+                dump_frame
+            OTHER:
 
 PUB hexdump(ptr) | seg, off
 
-  therm.dump_ee (ptr)
-  repeat seg from 0 to therm#EE_SIZE-8 step 8
-    ser.Hex (seg, 2)
-    ser.Str (string(": "))
-    repeat off from 0 to 7
-      ser.Hex (byte[ptr][seg+off], 2)
-      ser.Char (" ")
-    ser.NewLine
+    therm.dump_ee (ptr)
+    repeat seg from 0 to therm#EE_SIZE-8 step 8
+        ser.Hex (seg, 2)
+        ser.Str (string(": "))
+        repeat off from 0 to 7
+            ser.Hex (byte[ptr][seg+off], 2)
+            ser.Char (" ")
+        ser.NewLine
 
 PUB dump_frame | line, col, k
 
-  repeat line from 0 to 3
-    repeat col from 0 to 15
-      k := (col * 4) + line
-      ser.Hex (_ir_frame.word[k], 4)
-      ser.Char (" ")
-    ser.NewLine
-  ser.NewLine
-  k++
+    repeat line from 0 to 3
+        repeat col from 0 to 15
+            k := (col * 4) + line
+            ser.Position (col * 5, line)
+            ser.Hex (_ir_frame.word[k], 4)
+            ser.Char (" ")
+{  k++
   ser.Hex (_ir_frame.word[k], 4)
   ser.NewLine
   k++
   ser.Hex (_ir_frame.word[k], 4)
   ser.NewLine
-
+}
 PUB Setup
 
     _therm_cog := therm.Startx (SCL, SDA, I2C_FREQ)
     therm.Defaults
     therm.SetRefreshRate (32)
-    therm.SetMeasureMode (0)
-    therm.SetADCRes (18)
-    therm.SetADCReference (1)
-    therm.EnableEEPROM (TRUE)
-    therm.EnableI2CFM (TRUE)
-    therm.SetOperationMode (0)
+
     cognew(keydaemon, @_keydaemon_stack)
     oled.Init(CS, DC, DATA, CLK, RST)
     oled.clearDisplay

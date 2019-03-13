@@ -44,6 +44,8 @@ CON
     EE_OFFS_KT1SCL  = $D2
     EE_OFFS_KT2SCL  = $D2
     EE_OFFS_OSCTRIM = $F7
+    EE_OFFS_CFGH    = $F6
+    EE_OFFS_CFGL    = $F5
 
     RAM_OFFS_PTAT   = $40
     RAM_OFFS_CPIX   = $41
@@ -106,25 +108,6 @@ PUB Startx(SCL_PIN, SDA_PIN, I2C_HZ): okay
 
     return FALSE                                                        'If we got here, something went wrong
 
-''  TASKS:
-''C  1 POR (see 8.3)
-''C  2 wait 5ms
-''C  3 read eeprom table
-''W  4 store cal coeff in prop RAM
-''C  5 write osc trim val into addr $93
-''C  6 write cfg val addr $92 (value read from eeprom or hard coded externally)
-''C    set POR/brown out flag to 1 (bit 10 at $92
-''  7 check BO flag. Cleared? Yes: repeat step 3 No: proceed to step 8
-''W  8 read meas data (PTAT+desired IR data)
-''W  9 Ta calc
-''W  10 pix offset cancelling
-''  11 therm grad comp
-''  12 pix<->pix normalization
-''  13 obj emissivity comp
-''  14 obj temp calc
-''  15 image process/correct
-''  loop to step 7
-
 PUB Stop
 
     i2c.terminate
@@ -139,7 +122,7 @@ PUB Ping
 PUB Defaults
 
     Write_OSCTrim (peek_ee (EE_OFFS_OSCTRIM)) ' Write osc trimming val extracted from EEPROM address $F7
-    '  Write_Cfg ($4638)' (peek_ee($F6)<<8) | peek_ee($F5) )'($4E39) '463E
+'    _cfg_reg := (peek_ee(EE_OFFS_CFGH) << 8) | peek_ee(EE_OFFS_CFGL) & $FFFF
     SetRefreshRate (1)
     SetADCRes (18)
     SetMeasureMode (MMODE_CONT)
@@ -147,6 +130,7 @@ PUB Defaults
     EnableI2CFM (TRUE)
     EnableEEPROM (TRUE)
     SetADCReference (ADCREF_LO)
+    Write_Cfg
 
     time.MSleep (5)
 
