@@ -258,21 +258,22 @@ PUB ADCReference(mode) | tmp
 
 'TODO: Call Re-cal method here
 
-PUB ADCRes(bits)
-'' Set ADC resolution, in bits
-''  Valid values are 15 to 18
-'' NOTE: Updates the VAR _adc_res, as this is used in the various thermal correction calculations
-'' TODO:
-''   Create a wrapper re-cal method
-    Read_Cfg
-    case lookdown(bits: 15..18)
-        1..4:
-            _cfgset_adcres := (bits-15) << 4
+PUB ADCRes(bits) | tmp
+' Set ADC resolution, in bits
+'   Valid values: 15..18
+'   Any other value polls the chip and returns the current setting
+    readRegX (core#CONFIG, 1, 0, @tmp)
+    case bits
+        15..18:
+            bits := lookdownz(bits: 15, 16, 17, 18) << core#FLD_ADCRES
         OTHER:
-            return
+            result := (tmp >> core#FLD_ADCRES) & core#BITS_ADCRES
+            return result := lookupz(result: 15, 16, 17, 18)
+    tmp &= core#MASK_ADCRES
+    tmp := (tmp | bits) & core#CONFIG_MASK
+    writeRegX (core#CONFIG, tmp)
 
-    Write_Cfg
-    _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
+'    _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
 PUB MeasureMode(mode) | tmp
 ' Set measurement mode to continuous or one-shot/step
