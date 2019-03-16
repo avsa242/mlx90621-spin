@@ -178,16 +178,15 @@ PUB EEPROM(enabled) | tmp
     tmp := (tmp | enabled) & core#CONFIG_MASK
     writeRegX (core#CONFIG, tmp)
 
-PUB GetColumn(ptr_col, col) | rawpix[2], line, pixel
-
+PUB GetColumn(buf_addr, col) | rawpix[2], line, offset
+' Reads a single column of pixels from the sensor into buf_addr
     if not lookdown(col: 0..15)
         return
 
-    readData (@rawpix, col * 4, 1, 4)
-
+    readRegX (col * 4, 4, 1, @rawpix)
     repeat line from 0 to 3
-        pixel := (col * 4) + line
-        word[ptr_col][pixel] := type.u16_s16 (rawpix.word[line])
+        offset := (col * 4) + line
+        word[buf_addr][offset] := type.u16_s16 (rawpix.word[line])
 
 PUB GetFrame(buf_addr) | line, col, rawpix[32], offset
 ' Reads entire frame from sensor and stores it in buffer at buf_addr
