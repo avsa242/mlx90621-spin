@@ -210,16 +210,14 @@ PUB GetFrameExt(buf_addr) | line, col, rawpix[33], pixel
     _PTAT := (word[buf_addr][RAM_OFFS_PTAT] := rawpix.word[RAM_OFFS_PTAT]) * 100 ' Also get PTAT data
     word[buf_addr][RAM_OFFS_CPIX] := rawpix.word[RAM_OFFS_CPIX]          ' and Compensation Pixel, too
 
-PUB GetLine(ptr_line, line) | rawpix[8], col, pixel
-
+PUB GetLine(buf_addr, line) | rawpix[8], col, offset
+' Reads a single line of pixels from the sensor into buf_addr
     if not lookdown(line: 0..3)
         return
-
-    readData (@rawpix, line, 4, 16)
-
+    readRegX (line, 16, 4, @rawpix)
     repeat col from 0 to 15
-        pixel := (col * 4) + line
-        word[ptr_line][pixel] := type.u16_s16 (rawpix.word[col])
+        offset := (col * 4) + line
+        word[buf_addr][offset] := type.u16_s16 (rawpix.word[col])
 
 PUB GetPixel(buf_addr, col, line) | rawpix, offset
 ' Reads a single pixel from the sensor into buf_addr
