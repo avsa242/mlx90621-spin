@@ -127,7 +127,7 @@ PUB EEPROM(enabled) | tmp
 '   NOTE: Use with care! Driver will fail to restart if EEPROM is disabled.
 '       Cycle power in this case.
 '   Any other value polls the chip and returns the current setting
-    readRegX (core#CONFIG, 1, 0, @tmp)
+    readRegX (core#CONFIG, 2, 0, @tmp)
     case ||enabled
         0, 1:
             enabled := (1-(||enabled)) << core#FLD_EEPROMENA
@@ -146,7 +146,7 @@ PUB I2CFM(enabled) | tmp
 '       e.g., you may have started the driver at 400kHz, but left this option at the default 1000kHz.
 '       Thus, the sensor will _allow_ traffic at up to 1000kHz, but the driver will only actually be operating at 400kHz.
 '   Any other value polls the chip and returns the current setting
-    readRegX (core#CONFIG, 1, 0, @tmp)
+    readRegX (core#CONFIG, 2, 0, @tmp)
     case ||enabled
         0, 1:
             enabled := (1-(||enabled)) << core#FLD_I2CFMP
@@ -219,7 +219,7 @@ PUB ADCReference(mode) | tmp
 '      ADCREF_LO (1) - ADC Low reference enabled (default)
 '   Any other value polls the chip and returns the current setting
 ' NOTE: Re-calibration must be done after this method is called
-    readRegX (core#CONFIG, 1, 0, @tmp)
+    readRegX (core#CONFIG, 2, 0, @tmp)
     case mode
         ADCREF_HI, ADCREF_LO:
             mode := mode << core#FLD_ADCHIGHREF
@@ -235,7 +235,7 @@ PUB ADCRes(bits) | tmp
 ' Set ADC resolution, in bits
 '   Valid values: 15..18
 '   Any other value polls the chip and returns the current setting
-    readRegX (core#CONFIG, 1, 0, @tmp)
+    readRegX (core#CONFIG, 2, 0, @tmp)
     case bits
         15..18:
             bits := lookdownz(bits: 15, 16, 17, 18) << core#FLD_ADCRES
@@ -254,7 +254,7 @@ PUB MeasureMode(mode) | tmp
 '      MMODE_CONT (0) - Continuous (default)
 '      MMODE_STEP (1) - Step
 '   Any other value polls the chip and returns the current setting
-    readRegX (core#CONFIG, 1, 0, @tmp)
+    readRegX (core#CONFIG, 2, 0, @tmp)
 
     case mode
         MMODE_CONT, MMODE_STEP:
@@ -271,7 +271,7 @@ PUB OperationMode(mode) | tmp
 '       OPMODE_NORM (0) - Normal (default)
 '       OPMODE_SLEEP (1) - Sleep mode
 '   Any other value polls the chip and returns the current setting
-    readRegX (core#CONFIG, 1, 0, @tmp)
+    readRegX (core#CONFIG, 2, 0, @tmp)
     case mode
         OPMODE_NORM, OPMODE_SLEEP:
             mode := (mode << core#FLD_OPMODE)
@@ -286,7 +286,7 @@ PUB RefreshRate(Hz) | tmp
 '   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2
 '   Any other value polls the chip and returns the current setting
 ' NOTE: Higher rates will yield noisier images
-    readRegX (core#CONFIG, 1, 0, @tmp)
+    readRegX (core#CONFIG, 2, 0, @tmp)
     case Hz := lookdownz(Hz: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
         0..15:
         OTHER:
@@ -338,16 +338,14 @@ PUB readRegX(reg, nr_reads, rd_step, rd_buf) | cmd_packet[2]
     cmd_packet.byte[0] := SLAVE_WR
     cmd_packet.byte[1] := core#CMD_READREG
     case reg
-        $00..$41:   'RAM
+        $00..$41:                           'RAM
             cmd_packet.byte[2] := reg
             cmd_packet.byte[3] := rd_step
             cmd_packet.byte[4] := nr_reads
-
-        $92..$93:   'Configuration regs
+        $92..$93:                           'Configuration regs
             cmd_packet.byte[2] := reg
-            cmd_packet.byte[3] := 0     'Address step
-            cmd_packet.byte[4] := 1     'Number of reads
-
+            cmd_packet.byte[3] := 0         'Address step
+            cmd_packet.byte[4] := 1         'Number of reads sent as command parameter to device
         OTHER:
             return
 
