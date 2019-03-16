@@ -308,38 +308,21 @@ PUB OperationMode(mode) | tmp
     tmp := (tmp | mode) & core#CONFIG_MASK
     writeRegX (core#CONFIG, tmp)
 
-PUB RefreshRate(Hz)
-'' Set sensor refresh rate
-'' Valid values are 0, 0.5 or 5 for 0.5Hz, or 1 to 512 in powers of 2
-'' NOTE: Higher rates will yield noisier images
-    Read_Cfg    'XXX Convert to lookup?
-    case Hz
-        0, 0.5, 5:
-            _cfgset_refr_rate := %1111
-        1:
-            _cfgset_refr_rate := %1110
-        2:
-            _cfgset_refr_rate := %1101
-        4:
-            _cfgset_refr_rate := %1100
-        8:
-            _cfgset_refr_rate := %1011
-        16:
-            _cfgset_refr_rate := %1010
-        32:
-            _cfgset_refr_rate := %1001
-        64:
-            _cfgset_refr_rate := %1000
-        128:
-            _cfgset_refr_rate := %0111
-        256:
-            _cfgset_refr_rate := %0110
-        512:
-            _cfgset_refr_rate := %0101
+PUB RefreshRate(Hz) | tmp
+' Set sensor refresh rate
+'   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2
+'   Any other value polls the chip and returns the current setting
+' NOTE: Higher rates will yield noisier images
+    readRegX (core#CONFIG, 1, 0, @tmp)
+    case Hz := lookdownz(Hz: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
+        0..15:
         OTHER:
-            return
+            result := tmp & core#BITS_REFRATE
+            return lookupz(result: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
 
-    Write_Cfg
+    tmp &= core#MASK_REFRATE
+    tmp := (tmp | Hz) & core#CONFIG_MASK
+    writeRegX (core#CONFIG, tmp)
 
 PUB Dump_EE(ee_buf)
 '' Copy downloaded EEPROM image to ee_buf
