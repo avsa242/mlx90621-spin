@@ -265,6 +265,14 @@ PUB MeasureMode(mode) | tmp
     tmp := (tmp | mode) & core#CONFIG_MASK
     writeRegX ( core#CONFIG, tmp)
 
+PUB Measuring
+' Measurement running
+'   Returns:
+'       FALSE: No IR measurement running
+'       TRUE: IR measurement running
+    readRegX (core#CONFIG, 2, 0, @result)
+    result := ((result >> core#FLD_MEASURING) & %1) * TRUE
+
 PUB OperationMode(mode) | tmp
 ' Set Operation mode
 '   Valid values:
