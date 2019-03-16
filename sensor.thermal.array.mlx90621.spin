@@ -123,20 +123,23 @@ PUB Defaults
     Read_Cfg
     Read_OSCTrim
 
-PUB EEPROM(enabled)
-'' Enable/disable the sensor's built-in EEPROM
-''   TRUE, 1 - Sensor's built-in EEPROM enabled (default)
-''   FALSE, 0- Sensor's built-in EEPROM disabled (use with care -
-''               object will fail to restart if EEPROM is disabled.
-''               Cycle power in this case.)
-    Read_Cfg
+PUB EEPROM(enabled) | tmp
+' Enable/disable the sensor's built-in EEPROM
+'   Valid values:
+'      TRUE (-1 or 1): Sensor's built-in EEPROM enabled (default)
+'      FALSE: Sensor's built-in EEPROM disabled
+'      NOTE: Use with care! Driver will fail to restart if EEPROM is disabled.
+'       Cycle power in this case.
+'   Any other value polls the chip and returns the current setting
+    readRegX (core#CONFIG, 1, 0, @tmp)
     case ||enabled
         0, 1:
-            _cfgset_ee_ena := (1-||enabled) << 12
+            enabled := (1-(||enabled)) << core#FLD_EEPROMENA
         OTHER:
-            return
-
-    Write_Cfg
+            return (1-((tmp >> core#FLD_EEPROMENA) & %1)) * TRUE
+    tmp &= core#MASK_EEPROMENA
+    tmp := (tmp | enabled) & core#CONFIG_MASK
+    writeRegX (core#CONFIG, tmp)
 
 PUB I2CFM(enabled)
 '' Enable/disable I2C Fast Mode mode
