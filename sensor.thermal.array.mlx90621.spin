@@ -292,18 +292,21 @@ PUB MeasureMode(mode) | tmp
     tmp := (tmp | mode) & core#CONFIG_MASK
     writeRegX ( core#CONFIG, tmp)
 
-PUB OperationMode(mode)
-'' Set Operation mode
-''   OPMODE_NORM (0) - Normal (default)
-''   OPMODE_SLEEP (1) - Sleep mode
-    Read_Cfg
+PUB OperationMode(mode) | tmp
+' Set Operation mode
+'   Valid values:
+'       OPMODE_NORM (0) - Normal (default)
+'       OPMODE_SLEEP (1) - Sleep mode
+'   Any other value polls the chip and returns the current setting
+    readRegX (core#CONFIG, 1, 0, @tmp)
     case mode
         OPMODE_NORM, OPMODE_SLEEP:
-            _cfgset_opmode := (mode << 7)
+            mode := (mode << core#FLD_OPMODE)
         OTHER:
-            return
-
-    Write_Cfg
+            return (tmp >> core#FLD_OPMODE) & %1
+    tmp &= core#MASK_OPMODE
+    tmp := (tmp | mode) & core#CONFIG_MASK
+    writeRegX (core#CONFIG, tmp)
 
 PUB RefreshRate(Hz)
 '' Set sensor refresh rate
