@@ -108,8 +108,7 @@ PUB Stop
 
 PUB Defaults
 
-    WriteOSCTrim (peek_ee (EE_OFFS_OSCTRIM)) ' Write osc trimming val extracted from EEPROM address $F7
-'    _cfg_reg := (peek_ee(EE_OFFS_CFGH) << 8) | peek_ee(EE_OFFS_CFGL) & $FFFF
+    OSCTrim (peek_ee (EE_OFFS_OSCTRIM)) ' Write osc trimming val extracted from EEPROM address $F7
     RefreshRate (1)
     ADCRes (18)
     MeasureMode (MMODE_CONT)
@@ -119,8 +118,6 @@ PUB Defaults
     ADCReference (ADCREF_LO)
 
     time.MSleep (5)
-
-    Read_OSCTrim
 
 PUB EEPROM(enabled) | tmp
 ' Enable/disable the sensor's built-in EEPROM
@@ -214,11 +211,6 @@ PUB GetPixel(ptr_frame, col, line) | rawpix, pixel
     word[ptr_frame][pixel] := type.u16_s16 (rawpix & $FFFF)
 
     return ptr_frame.word[pixel] := rawpix
-
-PUB Read_OSCTrim | read_data, osctrim_data
-
-    readData (@read_data, core#OSC_TRIM, 0, 1)
-    osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
 
 PUB ADCReference(mode) | tmp
 ' Set ADC reference high, low
@@ -327,9 +319,19 @@ PUB Read_EE
     i2c.rd_block (@_ee_data, EE_SIZE-1, TRUE)
     i2c.stop
 
-PUB WriteOSCTrim(val)
+PUB OSCTrim(val) | tmp
+' Set Oscillator Trim value
+'   Valid values: 0..127
+'   Any other value polls the chip and returns the current setting
+'   NOTE: It is recommended to use the factory set value contained in the device's EEPROM.
+    readRegX (core#OSC_TRIM, 1, 0, @tmp)
+    case val
+        0..127:
+        OTHER:
+            return val & core#OSC_TRIM_MASK
 
-    writeRegX (core#OSC_TRIM, val)
+    tmp := val & core#OSC_TRIM_MASK
+    writeRegX (core#OSC_TRIM, tmp)
 
 PUB readRegX(reg, nr_reads, rd_step, rd_buf) | cmd_packet[2]
 
