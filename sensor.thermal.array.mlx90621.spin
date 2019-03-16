@@ -189,14 +189,14 @@ PUB GetColumn(ptr_col, col) | rawpix[2], line, pixel
         pixel := (col * 4) + line
         word[ptr_col][pixel] := type.u16_s16 (rawpix.word[line])
 
-PUB GetFrame(buf_addr) | line, col, rawpix[32], pixel
-'' Gets frame from sensor and stores it in buffer at buf_addr
-'' This buffer must be 32 longs/64 words
-    readData (@rawpix, $00, 1, 64)
+PUB GetFrame(buf_addr) | line, col, rawpix[32], offset
+' Reads entire frame from sensor and stores it in buffer at buf_addr
+' This buffer must be 32 longs/64 words
+    readRegX (0, 64, 1, @rawpix)
     repeat line from 0 to 3
         repeat col from 0 to 15
-            pixel := (col * 4) + line       'Compute offset location in array of current pixel
-            word[buf_addr][pixel] := type.u16_s16 (rawpix.word[pixel])
+            offset := (col * 4) + line       'Compute offset location in array of current pixel
+            word[buf_addr][offset] := type.u16_s16 (rawpix.word[offset])
 
 PUB GetFrameExt(buf_addr) | line, col, rawpix[33], offset
 ' Reads entire frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at buf_addr
