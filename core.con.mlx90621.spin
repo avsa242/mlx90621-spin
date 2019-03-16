@@ -21,9 +21,33 @@ CON
     CMD_READREG             = $02
     CMD_WRITEREG_CFG        = $03
     CMD_WRITEREG_OSCTRIM    = $04
+    CMD_STEP_MEASURE        = $81
 
-    REG_CFG                 = $92
-    REG_OSC                 = $93
+    CONFIG                  = $92
+    CONFIG_MASK             = $5EFF
+        FLD_REFRATE         = 0
+        FLD_ADCRES          = 4
+        FLD_MEASMODE        = 6
+        FLD_OPMODE          = 7
+        FLD_MEASURING       = 9
+        FLD_RESET           = 10
+        FLD_I2CFMP          = 11
+        FLD_EEPROMENA       = 12
+        FLD_ADCHIGHREF      = 14
+        BITS_REFRATE        = %1111
+        BITS_ADCRES         = %11
+        MASK_REFRATE        = CONFIG_MASK ^ (BITS_REFRATE << FLD_REFRATE)
+        MASK_ADCRES         = CONFIG_MASK ^ (BITS_ADCRES << FLD_ADCRES)
+        MASK_MEASMODE       = CONFIG_MASK ^ (1 << FLD_MEASMODE)
+        MASK_OPMODE         = CONFIG_MASK ^ (1 << FLD_OPMODE)
+        MASK_MEASURING      = CONFIG_MASK ^ (1 << FLD_MEASURING)
+        MASK_RESET          = CONFIG_MASK ^ (1 << FLD_RESET)
+        MASK_I2CFMP         = CONFIG_MASK ^ (1 << FLD_I2CFMP)
+        MASK_EEPROMENA      = CONFIG_MASK ^ (1 << FLD_EEPROMENA)
+        MASK_ADCHIGHREF     = CONFIG_MASK ^ (1 << FLD_ADCHIGHREF)
+
+    OSC_TRIM                = $93
+    OSC_TRIM_MASK           = $007F
 
 PUB Null
 '' This is not a top-level object

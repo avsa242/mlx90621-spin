@@ -54,10 +54,13 @@ CON
     OSC_CKBYTE      = $AA
     POR_BIT         = %0000_0100_0000_0000
 
+    W               = 0
+    R               = 1
+
 OBJ
 
     core    : "core.con.mlx90621"
-    i2c     : "jm_i2c_fast"
+    i2c     : "com.i2c"
     time    : "time"
     type    : "system.types"
 
@@ -105,7 +108,7 @@ PUB Stop
 
 PUB Defaults
 
-    Write_OSCTrim (peek_ee (EE_OFFS_OSCTRIM)) ' Write osc trimming val extracted from EEPROM address $F7
+    WriteOSCTrim (peek_ee (EE_OFFS_OSCTRIM)) ' Write osc trimming val extracted from EEPROM address $F7
 '    _cfg_reg := (peek_ee(EE_OFFS_CFGH) << 8) | peek_ee(EE_OFFS_CFGL) & $FFFF
     RefreshRate (1)
     ADCRes (18)
@@ -114,7 +117,6 @@ PUB Defaults
     I2CFM (TRUE)
     EEPROM (TRUE)
     ADCReference (ADCREF_LO)
-    Write_Cfg
 
     time.MSleep (5)
 
@@ -207,7 +209,7 @@ PUB GetPixel(ptr_frame, col, line) | rawpix, pixel
 
 PUB Read_Cfg | tmp 'XXX Remove? Just use readData instead?
 
-    readData (@tmp, core#REG_CFG, 0, 1)
+    readData (@tmp, core#CONFIG, 0, 1)
     
     _cfg_reg := (tmp.byte[1] << 8) | tmp.byte[0]
 
@@ -225,7 +227,7 @@ PUB Read_Cfg | tmp 'XXX Remove? Just use readData instead?
 
 PUB Read_OSCTrim | read_data, osctrim_data
 
-    readData (@read_data, core#REG_OSC, 0, 1)
+    readData (@read_data, core#OSC_TRIM, 0, 1)
     osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
 
 PUB ADCReference(mode)
@@ -269,7 +271,6 @@ PUB MeasureMode(mode)
             _cfgset_mmode := (mode << 6)
         OTHER:
             return
-
     Write_Cfg
 
 PUB OperationMode(mode)
@@ -337,50 +338,71 @@ PUB Read_EE
 
     i2c.start                           'Read in the EEPROM
     i2c.write (core#EE_SLAVE_ADDR|1)
-    i2c.pread (@_ee_data, EE_SIZE-1, TRUE)
+    i2c.rd_block (@_ee_data, EE_SIZE-1, TRUE)
     i2c.stop
 
-PUB Write_Cfg | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
-'' Write config register (automatically called from methods that modify fields within the register)
-    _cfg_reg := _cfgset_adcref | _cfgset_ee_ena | _cfgset_i2cfm_ena | _cfgset_opmode | _cfgset_mmode | _cfgset_adcres | _cfgset_refr_rate | POR_BIT
+PUB WriteCfg(val)
 
-    lsbyte := _cfg_reg.byte[0]
-    msbyte := _cfg_reg.byte[1]
+    writeRegX (core#CONFIG, val)
 
-    lsbyte_ck := (lsbyte - CFG_CKBYTE)          'Generate simple checksum values
-    msbyte_ck := (msbyte - CFG_CKBYTE)          'from least and most significant bytes
+PUB WriteOSCTrim(val)
+
+    writeRegX (core#OSC_TRIM, val)
+
+PUB readRegX(reg, nr_reads, rd_step, rd_buf) | cmd_packet[2]
 
     cmd_packet.byte[0] := SLAVE_WR
-    cmd_packet.byte[1] := core#CMD_WRITEREG_CFG
-    cmd_packet.byte[2] := lsbyte_ck
-    cmd_packet.byte[3] := lsbyte
-    cmd_packet.byte[4] := msbyte_ck
-    cmd_packet.byte[5] := msbyte
+    cmd_packet.byte[1] := core#CMD_READREG
+    case reg
+        $00..$41:   'RAM
+            cmd_packet.byte[2] := reg
+            cmd_packet.byte[3] := rd_step
+            cmd_packet.byte[4] := nr_reads
+
+        $92..$93:   'Configuration regs
+            cmd_packet.byte[2] := reg
+            cmd_packet.byte[3] := 0     'Address step
+            cmd_packet.byte[4] := 1     'Number of reads
+
+        OTHER:
+            return
 
     i2c.start
-    i2c.pwrite (@cmd_packet, 6)
+    i2c.wr_block (@cmd_packet, 5)
+    i2c.start
+    i2c.write (SLAVE_RD)
+    i2c.rd_block (rd_buf, nr_reads, TRUE)
     i2c.stop
 
-    return (msbyte<<8)|lsbyte
-
-PUB Write_OSCTrim(val_word) | lsbyte, lsbyte_ck, msbyte, msbyte_ck, cmd_packet[2]
-'' Write oscillator trimming register
-'' NOTE: Value typically used is stored in the EEPROM image at offset EE_OFFS_OSCTRIM
-''  and varies per device.
-    lsbyte := val_word.byte[0]
-    msbyte := val_word.byte[1]
-    lsbyte_ck := (lsbyte - OSC_CKBYTE)           'Generate simple checksum values
-    msbyte_ck := (msbyte - OSC_CKBYTE)           'from least and most significant bytes
+PUB writeRegX(reg, val) | cmd_packet[2], nr_bytes
 
     cmd_packet.byte[0] := SLAVE_WR
-    cmd_packet.byte[1] := core#CMD_WRITEREG_OSCTRIM
-    cmd_packet.byte[2] := lsbyte_ck
-    cmd_packet.byte[3] := lsbyte
-    cmd_packet.byte[4] := msbyte_ck
-    cmd_packet.byte[5] := msbyte
+    case reg
+        core#CONFIG:
+            cmd_packet.byte[1] := core#CMD_WRITEREG_CFG
+            cmd_packet.byte[2] := val.byte[0] - CFG_CKBYTE
+            cmd_packet.byte[3] := val.byte[0]
+            cmd_packet.byte[4] := val.byte[1] - CFG_CKBYTE
+            cmd_packet.byte[5] := val.byte[1]
+            nr_bytes := 6
+
+        core#OSC_TRIM:
+            cmd_packet.byte[1] := core#CMD_WRITEREG_OSCTRIM
+            cmd_packet.byte[2] := val.byte[0] - OSC_CKBYTE
+            cmd_packet.byte[3] := val.byte[0]
+            cmd_packet.byte[4] := val.byte[1] - OSC_CKBYTE
+            cmd_packet.byte[5] := val.byte[1]
+            nr_bytes := 6
+
+        core#CMD_STEP_MEASURE:
+            cmd_packet.byte[1] := core#CMD_STEP_MEASURE
+            nr_bytes := 2
+
+        OTHER:
+            return
 
     i2c.start
-    i2c.pwrite (@cmd_packet, 6)
+    i2c.pwrite (@cmd_packet, nr_bytes)
     i2c.stop
 
 PUB readData(buff_ptr, addr_start, addr_step, word_count) | cmd_packet[2]
@@ -392,34 +414,12 @@ PUB readData(buff_ptr, addr_start, addr_step, word_count) | cmd_packet[2]
     cmd_packet.byte[4] := word_count
     
     i2c.start
-    i2c.pwrite (@cmd_packet, 5)
+    i2c.wr_block (@cmd_packet, 5)
     i2c.start
     i2c.write (SLAVE_RD)
-    i2c.pread (buff_ptr, word_count << 1, TRUE) '*2 = 81.6uS, << 1 = 71.8uS
+    i2c.rd_block (buff_ptr, word_count << 1, TRUE) '*2 = 81.6uS, << 1 = 71.8uS
     i2c.stop
 
-{PUB command (cmd, addr_start, addr_step, num_reads) | cmd_packet[2], ackbit
-
-  cmd_packet.byte[0] := SLAVE_WR
-  cmd_packet.byte[1] := cmd
-  cmd_packet.byte[2] := addr_start
-  cmd_packet.byte[3] := addr_step
-  cmd_packet.byte[4] := num_reads
-
-  i2c.start
-  ackbit := i2c.pwrite(@cmd_packet, 5)
-  if ackbit == i2c#NAK
-    _nak_count++
-}
-{PRI readword: data_word | read_data
-
-  i2c.start
-  _ackbit := i2c.write (SLAVE_RD)
-  i2c.pread (@read_data, 2, TRUE)
-  i2c.stop
-
-  data_word := (read_data.byte[1] << 8) | read_data.byte[0]
-}
 DAT
 {
     --------------------------------------------------------------------------------------------------------
