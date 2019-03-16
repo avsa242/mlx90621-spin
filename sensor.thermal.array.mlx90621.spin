@@ -239,20 +239,24 @@ PUB Read_OSCTrim | read_data, osctrim_data
     readData (@read_data, core#OSC_TRIM, 0, 1)
     osctrim_data := (read_data.byte[1] << 8) | read_data.byte[0]
 
-PUB ADCReference(mode)
-'' Set ADC reference high, low
-''   ADCREF_HI (0) - ADC High reference enabled
-''   ADCREF_LO (1) - ADC Low reference enabled (default)
-'' NOTE: Re-cal must be done after this method is called
-    Read_Cfg
+PUB ADCReference(mode) | tmp
+' Set ADC reference high, low
+'   Valid values:
+'      ADCREF_HI (0) - ADC High reference enabled
+'      ADCREF_LO (1) - ADC Low reference enabled (default)
+'   Any other value polls the chip and returns the current setting
+' NOTE: Re-calibration must be done after this method is called
+    readRegX (core#CONFIG, 1, 0, @tmp)
     case mode
         ADCREF_HI, ADCREF_LO:
-            _cfgset_adcref := (mode << 14)
+            mode := mode << core#FLD_ADCHIGHREF
         OTHER:
-            return
+            return (tmp >> core#FLD_ADCHIGHREF) & %1
+    tmp &= core#MASK_ADCHIGHREF
+    tmp := (tmp | mode) & core#CONFIG_MASK
+    writeRegX (core#CONFIG, tmp)
 
-    Write_Cfg
-  'TODO: Call Re-cal method here
+'TODO: Call Re-cal method here
 
 PUB ADCRes(bits)
 '' Set ADC resolution, in bits
