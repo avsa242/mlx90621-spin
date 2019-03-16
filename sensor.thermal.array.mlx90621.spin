@@ -128,7 +128,7 @@ PUB EEPROM(enabled) | tmp
 '   Valid values:
 '      TRUE (-1 or 1): Sensor's built-in EEPROM enabled (default)
 '      FALSE: Sensor's built-in EEPROM disabled
-'      NOTE: Use with care! Driver will fail to restart if EEPROM is disabled.
+'   NOTE: Use with care! Driver will fail to restart if EEPROM is disabled.
 '       Cycle power in this case.
 '   Any other value polls the chip and returns the current setting
     readRegX (core#CONFIG, 1, 0, @tmp)
@@ -141,18 +141,24 @@ PUB EEPROM(enabled) | tmp
     tmp := (tmp | enabled) & core#CONFIG_MASK
     writeRegX (core#CONFIG, tmp)
 
-PUB I2CFM(enabled)
-'' Enable/disable I2C Fast Mode mode
-''   TRUE, 1  - Max I2C bus speed/bit transfer rate up to 1000kbit/sec (default)
-''   FALSE, 0 - Max I2C bus speed/bit transfer rate up to 400kbit/sec
-    Read_Cfg
+PUB I2CFM(enabled) | tmp
+' Enable I2C Fast Mode+
+'   Valid values:
+'      TRUE (-1 or 1): Max I2C bus speed 1000kbit/sec (default)
+'      FALSE: Max I2C bus speed 400kbit/sec
+'   NOTE: This is independent of, and has no effect on what speed the driver was started with.
+'       e.g., you may have started the driver at 400kHz, but left this option at the default 1000kHz.
+'       Thus, the sensor will _allow_ traffic at up to 1000kHz, but the driver will only actually be operating at 400kHz.
+'   Any other value polls the chip and returns the current setting
+    readRegX (core#CONFIG, 1, 0, @tmp)
     case ||enabled
         0, 1:
-            _cfgset_i2cfm_ena := (1-||enabled) << 11
+            enabled := (1-(||enabled)) << core#FLD_I2CFMP
         OTHER:
-            return
-
-    Write_Cfg
+            return (1-((tmp >> core#FLD_I2CFMP) & %1)) * TRUE
+    tmp &= core#MASK_I2CFMP
+    tmp := (tmp | enabled) & core#CONFIG_MASK
+    writeRegX (core#CONFIG, tmp)
 
 PUB GetColumn(ptr_col, col) | rawpix[2], line, pixel
 
