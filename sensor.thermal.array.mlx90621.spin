@@ -371,6 +371,7 @@ PUB readRegX(reg, nr_reads, rd_step, rd_buf) | cmd_packet[2]
             cmd_packet.byte[2] := reg
             cmd_packet.byte[3] := rd_step
             cmd_packet.byte[4] := nr_reads
+            nr_reads <<= 1
         $92..$93:                           'Configuration regs
             cmd_packet.byte[2] := reg
             cmd_packet.byte[3] := 0         'Address step
