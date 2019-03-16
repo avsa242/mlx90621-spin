@@ -261,17 +261,22 @@ PUB ADCRes(bits)
     Write_Cfg
     _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
-PUB MeasureMode(mode)
-'' Set measurement mode
-''   MMODE_CONT (0) - Continuous (default)
-''   MMODE_STEP (1) - Step
-    Read_Cfg
+PUB MeasureMode(mode) | tmp
+' Set measurement mode to continuous or one-shot/step
+'   Valid values:
+'      MMODE_CONT (0) - Continuous (default)
+'      MMODE_STEP (1) - Step
+'   Any other value polls the chip and returns the current setting
+    readRegX (core#CONFIG, 1, 0, @tmp)
+
     case mode
         MMODE_CONT, MMODE_STEP:
-            _cfgset_mmode := (mode << 6)
+            mode := (mode << core#FLD_MEASMODE)
         OTHER:
-            return
-    Write_Cfg
+            return (tmp >> core#FLD_MEASMODE) & %1
+    tmp &= core#MASK_MEASMODE
+    tmp := (tmp | mode) & core#CONFIG_MASK
+    writeRegX ( core#CONFIG, tmp)
 
 PUB OperationMode(mode)
 '' Set Operation mode
