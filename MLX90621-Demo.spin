@@ -75,15 +75,8 @@ PUB Main
   wordfill(@_ir_frame, 0, 64)
 
   repeat
-'    ser.Hex (therm.Read_Cfg, 8)
-'    ser.NewLine
-'    time.mSleep (100)
 '    therm.GetFrameExt (@_ir_frame)
     therm.GetFrame (@_ir_frame)
-
-'    therm.GetLine (@_ir_frame, 1)
-'    therm.GetPixel (@_ir_frame, 6, 3)
-'    therm.GetColumn (@_ir_frame, 4)
 
 PUB Constrain(val, lower, upper)
 
@@ -180,26 +173,6 @@ PUB serframe | line, col, k, color, tmax, tmin
 
 PUB keydaemon | cmd
 
-    repeat until ser.Start (115_200)
-    ser.Clear
-    ser.Str (string("Serial terminal started", ser#NL))
-    if _therm_cog
-        ser.Str (string("MLX90621 object started on cog "))
-        ser.Dec (_therm_cog)
-        ser.NewLine
-    else
-        ser.Str (string("Error: MLX90621 object failed to start - halting", ser#NL))
-        time.MSleep (5)
-        oled.stop
-        therm.Stop
-        ser.Stop
-        repeat
-    ser.Str (string(ser#NL, "cfg reg: "))
-    ser.Hex (_cfg_reg := therm.Read_Cfg, 8)
-    ser.Char (" ")
-    ser.Bin (_cfg_reg, 16)
-    ser.NewLine
-
     repeat
         repeat until cmd := ser.CharIn
         case cmd
@@ -216,10 +189,6 @@ PUB keydaemon | cmd
                     _offset := 65535
                 ser.Str (string("Offset: "))
                 ser.Dec (_offset)
-                ser.NewLine
-            "c":
-                ser.Str (string("Init cfg reg: "))
-                ser.Hex (_cfg_reg, 8)
                 ser.NewLine
             "e":
                 hexdump(@_ee_img)
@@ -255,9 +224,23 @@ PUB dump_frame | line, col, k
 }
 PUB Setup
 
-    _therm_cog := therm.Startx (SCL, SDA, I2C_FREQ)
+    repeat until ser.Start (115_200)
+    ser.Clear
+    ser.Str (string("Serial terminal started", ser#NL))
+
+    if therm.Startx (SCL, SDA, I2C_FREQ)
+        ser.Str (string("MLX90621 object started"))
+        ser.NewLine
+    else
+        ser.Str (string("MLX90621 object failed to start - halting", ser#NL))
+        time.MSleep (5)
+        oled.stop
+        therm.Stop
+        ser.Stop
+        repeat
+
     therm.Defaults
-    therm.SetRefreshRate (32)
+    therm.RefreshRate (32)
 
     cognew(keydaemon, @_keydaemon_stack)
     oled.Init(CS, DC, DATA, CLK, RST)
