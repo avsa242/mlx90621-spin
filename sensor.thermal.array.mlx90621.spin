@@ -297,6 +297,22 @@ PUB RefreshRate(Hz) | tmp
     tmp := (tmp | Hz) & core#CONFIG_MASK
     writeRegX (core#CONFIG, tmp)
 
+PUB Reset(set) | tmp
+' Set sensor reset flag
+'   Valid values: TRUE (-1 or 1)
+'   Any other value polls the chip and returns the current setting
+'   NOTE: This must be done any time the sensor is initialized, _after_ the configuration register has been updated
+'       If FALSE is returned, POR or brown-out has occurred and the process must be repeated
+    readRegX (core#CONFIG, 2, 0, @tmp)
+    case ||set
+        1:
+            set := 1 << core#FLD_RESET
+        OTHER:
+            return ((tmp >> core#FLD_RESET) & %1) * TRUE
+    tmp &= core#MASK_RESET
+    tmp := (tmp | set) & core#CONFIG_MASK
+    writeRegX (core#CONFIG, tmp)
+
 PUB Dump_EE(ee_buf)
 '' Copy downloaded EEPROM image to ee_buf
 '' NOTE: Make sure ee_buf is 256 bytes in size!
