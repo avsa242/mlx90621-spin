@@ -113,14 +113,13 @@ PUB Defaults
     RefreshRate (1)
     ADCRes (18)
     MeasureMode (MMODE_CONT)
-    OperationMode (OPMODE_NORM) '0019 XXX OPMODE_SLEEP unverified (returns 463E)
+    OperationMode (OPMODE_NORM)
     I2CFM (TRUE)
     EEPROM (TRUE)
     ADCReference (ADCREF_LO)
 
     time.MSleep (5)
 
-    Read_Cfg
     Read_OSCTrim
 
 PUB EEPROM(enabled) | tmp
@@ -215,24 +214,6 @@ PUB GetPixel(ptr_frame, col, line) | rawpix, pixel
     word[ptr_frame][pixel] := type.u16_s16 (rawpix & $FFFF)
 
     return ptr_frame.word[pixel] := rawpix
-
-PUB Read_Cfg | tmp 'XXX Remove? Just use readData instead?
-
-    readData (@tmp, core#CONFIG, 0, 1)
-    
-    _cfg_reg := (tmp.byte[1] << 8) | tmp.byte[0]
-
-    _cfgset_adcref := _cfg_reg &       %0_1_0_0_0_0_0_0_0_0_00_0000
-    _cfgset_ee_ena := _cfg_reg &       %0_0_0_1_0_0_0_0_0_0_00_0000
-    _cfgset_i2cfm_ena := _cfg_reg &    %0_0_0_0_1_0_0_0_0_0_00_0000
-    _cfgflag_por_bit := _cfg_reg &     %0_0_0_0_0_1_0_0_0_0_00_0000
-    _cfgflag_measuring := _cfg_reg &   %0_0_0_0_0_0_1_0_0_0_00_0000
-    _cfgset_opmode := _cfg_reg &       %0_0_0_0_0_0_0_0_1_0_00_0000
-    _cfgset_mmode := _cfg_reg &        %0_0_0_0_0_0_0_0_0_1_00_0000
-    _cfgset_adcres := _cfg_reg &       %0_0_0_0_0_0_0_0_0_0_11_0000
-    _cfgset_refr_rate := _cfg_reg &    %0_0_0_0_0_0_0_0_0_0_00_1111
-
-    return _cfg_reg
 
 PUB Read_OSCTrim | read_data, osctrim_data
 
@@ -346,10 +327,6 @@ PUB Read_EE
     i2c.rd_block (@_ee_data, EE_SIZE-1, TRUE)
     i2c.stop
 
-PUB WriteCfg(val)
-
-    writeRegX (core#CONFIG, val)
-
 PUB WriteOSCTrim(val)
 
     writeRegX (core#OSC_TRIM, val)
@@ -407,7 +384,7 @@ PUB writeRegX(reg, val) | cmd_packet[2], nr_bytes
             return
 
     i2c.start
-    i2c.pwrite (@cmd_packet, nr_bytes)
+    i2c.wr_block (@cmd_packet, nr_bytes)
     i2c.stop
 
 PUB readData(buff_ptr, addr_start, addr_step, word_count) | cmd_packet[2]
