@@ -4,9 +4,9 @@
     Author: Jesse Burt
     Description: Driver for the Melexis MLX90621
      16x4 IR array (I2C).
-    Copyright (c) 2018
+    Copyright (c) 2019
     Started: Jan 14, 2018
-    Updated: Mar 13, 2019
+    Updated: Mar 23, 2019
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -66,18 +66,9 @@ OBJ
 
 VAR
 
-    byte _ee_data[EE_SIZE]
-    byte _osc_trim
-    word _cfg_reg
-    word _comp_pix
-    byte _adc_res
-    word _Vir_comp
-    
-    long _Vth_h, _Vth_l, _Vth25, _Kt1 , _Kt1_h, _Kt1_l, _Kt1_Scl, _Kt2, _Kt2_h, _Kt2_l, _Kt2_Scl, KtScl
     word _PTAT
-    
-    word _cfgset_adcref, _cfgset_ee_ena, _cfgset_i2cfm_ena, _cfgset_opmode, _cfgset_mmode, _cfgset_adcres, _cfgset_refr_rate
-    word _cfgflag_por_bit, _cfgflag_measuring
+
+    byte _ee_data[EE_SIZE]
 
 PUB Null
 ''This is not a top-level object
@@ -116,7 +107,7 @@ PUB Defaults
     I2CFM (TRUE)
     EEPROM (TRUE)
     ADCReference (ADCREF_LO)
-
+    Reset (TRUE)
     time.MSleep (5)
 
 PUB ADCReference(mode) | tmp
@@ -333,8 +324,9 @@ PUB RefreshRate(Hz) | tmp
 '   Any other value polls the chip and returns the current setting
 ' NOTE: Higher rates will yield noisier images
     readRegX (core#CONFIG, 2, 0, @tmp)
-    case Hz := lookdownz(Hz: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
-        0..15:
+    case Hz
+        512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0:
+            Hz := lookdownz(Hz: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
         OTHER:
             result := tmp & core#BITS_REFRATE
             return lookupz(result: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
@@ -373,6 +365,7 @@ PUB readRegX(reg, nr_reads, rd_step, rd_buf) | cmd_packet[2]
             cmd_packet.byte[2] := reg
             cmd_packet.byte[3] := 0         'Address step
             cmd_packet.byte[4] := 1         'Number of reads sent as command parameter to device
+            nr_reads := 2
         OTHER:
             return
 

@@ -1,86 +1,85 @@
  {
     --------------------------------------------
-    Filename:
-    Author:
-    Copyright (c) 20__
+    Filename: MLX90621-Demo.spin
+    Author: Jesse Burt
+    Description: Demo of the MLX90621 driver
+    Copyright (c) 2019
+    Started: Jan 14, 2018
+    Updated: Mar 23, 2019
     See end of file for terms of use.
     --------------------------------------------
 }
 
 CON
 
-  _clkmode = cfg#_clkmode
-  _xinfreq = cfg#_xinfreq
+    _clkmode = cfg#_clkmode
+    _xinfreq = cfg#_xinfreq
 
 '' OLED-96 I/O Pin assignments
+    RST     = 0
+    DC      = 1
     CS      = 2
-    RST     = 4
-    DC      = 3
-    CLK     = 1
-    DATA    = 0
+    CLK     = 3
+    DIN     = 4
 
-    SCL     = 8
-    SDA     = 7
+    SCL     = 28
+    SDA     = 29
     I2C_FREQ= 1_000_000
 
 OBJ
 
-  cfg   : "core.con.boardcfg.flip"
-  ser   : "com.serial.terminal"
-  time  : "time"
-  therm : "sensor.thermal.array.mlx90621"
-  oled  : "display.oled96"
-  int   : "string.integer"
+    cfg   : "core.con.boardcfg.flip"
+    ser   : "com.serial.terminal"
+    time  : "time"
+    therm : "sensor.thermal.array.mlx90621"
+    oled  : "oled96_asmfast"
+    int   : "string.integer"
 
 VAR
 
-  word _ir_frame[64]        '64 words for displayable frame, plus two more: PTAT and compensation pixel
-  long _drawframe_stack[50]
-  long _serframe_stack[50]
-  long _adc_stack[50]
-  long _keydaemon_stack[50]
-  byte _therm_cog
-  byte _ee_img[256]
+    long _drawframe_stack[50]
+    long _keydaemon_stack[50]
 
-  long a_min, a_max, a_range
-  long b_min, b_max, b_range
-  long c_min, c_max, c_range
-  long d_min, d_max, d_range
+    long a_min, a_max, a_range
+    long b_min, b_max, b_range
+    long c_min, c_max, c_range
+    long d_min, d_max, d_range
 
-  long Vin_100
-  long _offset
-  word _cfg_reg
-  word _ptat_raw
+    long _offset
+
+    word _ir_frame[64]
+
+    byte _ee_img[256]
+
 
 PUB Main
 
-  a_min := 0
-  a_max := 16383
-  a_range := a_max - a_min
- 
-  b_min := a_max + 1
-  b_max := 32767
-  b_range := b_max - b_min
+    a_min := 0
+    a_max := 16383
+    a_range := a_max - a_min
 
-  c_min := b_max + 1
-  c_max := 49151
-  c_range := c_max - c_min
-  
-  d_min := c_max + 1
-  d_max := 65535
-  d_range := d_max - d_min
-  
-  Setup
+    b_min := a_max + 1
+    b_max := 32767
+    b_range := b_max - b_min
 
-  wordfill(@_ir_frame, 0, 64)
+    c_min := b_max + 1
+    c_max := 49151
+    c_range := c_max - c_min
 
-  repeat
-'    therm.GetFrameExt (@_ir_frame)
-    therm.GetFrame (@_ir_frame)
+    d_min := c_max + 1
+    d_max := 65535
+    d_range := d_max - d_min
+
+    Setup
+
+    wordfill(@_ir_frame, 0, 64)
+
+    repeat
+        therm.GetFrame (@_ir_frame)
 
 PUB Constrain(val, lower, upper)
 
-  return lower #> val <# upper
+    return lower #> val <# upper
 
 PUB DrawFrame | col, line, sx, sy, width, height, color, i, k, buf
 
@@ -105,17 +104,9 @@ PUB DrawFrame | col, line, sx, sy, width, height, color, i, k, buf
         repeat line from 0 to 3
             repeat col from 0 to 15
                 k := (col * 4) + line
-                word[buf][k] := GetColor ((_ir_frame.word[k])+_offset)
-        oled.WRITEBUFF (DATA, CLK, CS, 1024, buf)
-'        wordmove(buf, @_ir_frame, 64)
-{
-    repeat
-        repeat line from 0 to 3
-            repeat col from 0 to 15
-                k := (col * 4) + line
                 color := GetColor ((_ir_frame.word[k])+_offset)
                 oled.box((col * 5) + sx, (line * 5)+sy, (col * 5) + sx + width, (line * 5) + sy + height, color, color)
-}
+
 PUB GetColor(val) | red, green, blue, inmax, outmax, divisor
 
     inmax := 65535
@@ -146,57 +137,30 @@ PUB GetColor(val) | red, green, blue, inmax, outmax, divisor
 ' RGB565 format
     return ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
 
-PUB serframe | line, col, k, color, tmax, tmin
-
-  tmin := 32767
-  tmax := 32767
-
-  repeat
-    ser.Position (0, 0)
-    repeat line from 0 to 3
-      repeat col from 0 to 15
-        k := (col * 4) + line
-        color := GetColor (_ir_frame.word[k])
-        if color < tmin
-          tmin := color
-          ser.Str (string("Min: "))
-          ser.Dec (tmin)
-          ser.NewLine
-        if color > tmax
-          tmax := color
-          ser.Str (string("Max: "))
-          ser.Dec (tmax)
-          ser.NewLine
-'        ser.Dec (color)
-'        ser.Char (" ")
-'      ser.NewLine
-
 PUB keydaemon | cmd
 
     repeat
         repeat until cmd := ser.CharIn
         case cmd
             "-":
-                _offset-=1000
+                _offset := 0 #> (_offset - 1000)
                 if _offset < 0
                     _offset := 0
                 ser.Str (string("Offset: "))
                 ser.Dec (_offset)
                 ser.NewLine
             "=":
-                _offset+=1000
-                if _offset > 65535
-                    _offset := 65535
+                _offset := (_offset + 1000) <# 65535
                 ser.Str (string("Offset: "))
                 ser.Dec (_offset)
                 ser.NewLine
             "e":
-                hexdump(@_ee_img)
+                HexDump(@_ee_img)
             "t":
-                dump_frame
+                DumpFrame
             OTHER:
 
-PUB hexdump(ptr) | seg, off
+PUB HexDump(ptr) | seg, off
 
     therm.dump_ee (ptr)
     repeat seg from 0 to therm#EE_SIZE-8 step 8
@@ -207,7 +171,7 @@ PUB hexdump(ptr) | seg, off
             ser.Char (" ")
         ser.NewLine
 
-PUB dump_frame | line, col, k
+PUB DumpFrame | line, col, k
 
     repeat line from 0 to 3
         repeat col from 0 to 15
@@ -215,18 +179,19 @@ PUB dump_frame | line, col, k
             ser.Position (col * 5, line)
             ser.Hex (_ir_frame.word[k], 4)
             ser.Char (" ")
-{  k++
-  ser.Hex (_ir_frame.word[k], 4)
-  ser.NewLine
-  k++
-  ser.Hex (_ir_frame.word[k], 4)
-  ser.NewLine
-}
+
 PUB Setup
 
     repeat until ser.Start (115_200)
     ser.Clear
     ser.Str (string("Serial terminal started", ser#NL))
+
+    oled.Init(CS, DC, DIN, CLK, RST)    'NOTE: Will "fail successfully" - Init has no return value (TODO)
+    ser.Str (string("SSD1331 OLED driver started", ser#NL))
+    oled.clearDisplay
+    oled.AutoUpdateOn
+    oled.clearDisplay
+    oled.boxFillOn
 
     if therm.Startx (SCL, SDA, I2C_FREQ)
         ser.Str (string("MLX90621 object started"))
@@ -243,11 +208,6 @@ PUB Setup
     therm.RefreshRate (32)
 
     cognew(keydaemon, @_keydaemon_stack)
-    oled.Init(CS, DC, DATA, CLK, RST)
-    oled.clearDisplay
-    oled.AutoUpdateOn
-    oled.clearDisplay
-    oled.boxFillOn
     cognew(DrawFrame, @_drawframe_stack)
 
 DAT
