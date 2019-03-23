@@ -296,7 +296,7 @@ PUB OSCTrim(val) | tmp
     case val
         0..127:
         OTHER:
-            return val & core#OSC_TRIM_MASK
+            return tmp & core#OSC_TRIM_MASK
 
     tmp := val & core#OSC_TRIM_MASK
     writeRegX (core#OSC_TRIM, tmp)

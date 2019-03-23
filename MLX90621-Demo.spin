@@ -171,6 +171,40 @@ PUB HexDump(ptr) | seg, off
             ser.Char (" ")
         ser.NewLine
 
+PUB DumpConfig
+
+    ser.Str (string("Refresh rate: "))
+    ser.Dec (therm.RefreshRate (-2))
+    ser.NewLine
+
+    ser.Str (string("ADC Res: "))
+    ser.Dec (therm.ADCRes (-2))
+    ser.NewLine
+
+    ser.Str (string("Reset: "))
+    ser.Dec (therm.Reset (-2))
+    ser.NewLine
+
+    ser.Str (string("ADC Ref: "))
+    ser.Dec (therm.ADCReference (-2))
+    ser.NewLine
+
+    ser.Str (string("Measure mode: "))
+    ser.Dec (therm.MeasureMode (-2))
+    ser.NewLine
+
+    ser.Str (string("Operation mode: "))
+    ser.Dec (therm.OperationMode (-2))
+    ser.NewLine
+
+    ser.Str (string("I2C Fast Mode+: "))
+    ser.Dec (therm.I2CFM (-2))
+    ser.NewLine
+
+    ser.Str (string("Oscillator Trim val: $"))
+    ser.Hex (therm.OSCTrim (-2), 2)
+    ser.NewLine
+
 PUB DumpFrame | line, col, k
 
     repeat line from 0 to 3
