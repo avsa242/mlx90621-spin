@@ -52,7 +52,6 @@ CON
 
     CFG_CKBYTE      = $55
     OSC_CKBYTE      = $AA
-    POR_BIT         = %0000_0100_0000_0000
 
     W               = 0
     R               = 1
@@ -66,6 +65,7 @@ OBJ
 
 VAR
 
+    word _raw_frame[64]
     word _PTAT
 
     byte _ee_data[EE_SIZE]
@@ -177,16 +177,12 @@ PUB GetColumn(buf_addr, col) | rawpix[2], line, offset
     readRegX (col * 4, 4, 1, @rawpix)
     repeat line from 0 to 3
         offset := (col * 4) + line
-        word[buf_addr][offset] := type.u16_s16 (rawpix.word[line])
+        word[buf_addr][offset] := type.s16 (rawpix.word[line])
 
-PUB GetFrame(buf_addr) | line, col, rawpix[32], offset
+PUB GetFrame(buf_addr)
 ' Reads entire frame from sensor and stores it in buffer at buf_addr
 ' This buffer must be 32 longs/64 words
-    readRegX (0, 64, 1, @rawpix)
-    repeat line from 0 to 3
-        repeat col from 0 to 15
-            offset := (col * 4) + line       'Compute offset location in array of current pixel
-            word[buf_addr][offset] := type.u16_s16 (rawpix.word[offset])
+    readRegX (0, 64, 1, buf_addr)
 
 PUB GetFrameExt(buf_addr) | line, col, rawpix[33], offset
 ' Reads entire frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at buf_addr
@@ -195,7 +191,7 @@ PUB GetFrameExt(buf_addr) | line, col, rawpix[33], offset
     repeat line from 0 to 3
         repeat col from 0 to 15
             offset := (col * 4) + line       'Compute offset location in array of current pixel
-            word[buf_addr][offset] := type.u16_s16 (rawpix.word[offset])
+            word[buf_addr][offset] := type.s16 (rawpix.word[offset])
 
     _PTAT := (word[buf_addr][RAM_OFFS_PTAT] := rawpix.word[RAM_OFFS_PTAT])  ' Get PTAT data
     word[buf_addr][RAM_OFFS_CPIX] := rawpix.word[RAM_OFFS_CPIX]             ' and Compensation Pixel, too
@@ -207,7 +203,7 @@ PUB GetLine(buf_addr, line) | rawpix[8], col, offset
     readRegX (line, 16, 4, @rawpix)
     repeat col from 0 to 15
         offset := (col * 4) + line
-        word[buf_addr][offset] := type.u16_s16 (rawpix.word[col])
+        word[buf_addr][offset] := type.s16 (rawpix.word[col])
 
 PUB GetPixel(buf_addr, col, line) | rawpix, offset
 ' Reads a single pixel from the sensor into buf_addr
@@ -225,7 +221,7 @@ PUB GetPixel(buf_addr, col, line) | rawpix, offset
     offset := (col * 4) + line 'Compute offset location in array of current pixel
 
     readRegX (offset, 1, 0, @rawpix)
-    return word[buf_addr][offset] := type.u16_s16 (rawpix & $FFFF)
+    return word[buf_addr][offset] := type.s16 (rawpix & $FFFF)
 
 PUB I2CFM(enabled) | tmp
 ' Enable I2C Fast Mode+
