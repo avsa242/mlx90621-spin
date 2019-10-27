@@ -117,7 +117,7 @@ PUB ADCReference(mode) | tmp
 '      ADCREF_LO (1) - ADC Low reference enabled (default)
 '   Any other value polls the chip and returns the current setting
 ' NOTE: Re-calibration must be done after this method is called
-    readRegX (core#CONFIG, 2, 0, @tmp)
+    readReg (core#CONFIG, 2, 0, @tmp)
     case mode
         ADCREF_HI, ADCREF_LO:
             mode := mode << core#FLD_ADCHIGHREF
@@ -125,7 +125,7 @@ PUB ADCReference(mode) | tmp
             return (tmp >> core#FLD_ADCHIGHREF) & %1
     tmp &= core#MASK_ADCHIGHREF
     tmp := (tmp | mode) & core#CONFIG_MASK
-    writeRegX (core#CONFIG, tmp)
+    writeReg (core#CONFIG, tmp)
 
 'TODO: Call Re-cal method here
 
@@ -133,7 +133,7 @@ PUB ADCRes(bits) | tmp
 ' Set ADC resolution, in bits
 '   Valid values: 15..18
 '   Any other value polls the chip and returns the current setting
-    readRegX (core#CONFIG, 2, 0, @tmp)
+    readReg (core#CONFIG, 2, 0, @tmp)
     case bits
         15..18:
             bits := lookdownz(bits: 15, 16, 17, 18) << core#FLD_ADCRES
@@ -142,7 +142,7 @@ PUB ADCRes(bits) | tmp
             return result := lookupz(result: 15, 16, 17, 18)
     tmp &= core#MASK_ADCRES
     tmp := (tmp | bits) & core#CONFIG_MASK
-    writeRegX (core#CONFIG, tmp)
+    writeReg (core#CONFIG, tmp)
 
 '    _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
@@ -159,7 +159,7 @@ PUB EEPROM(enabled) | tmp
 '   NOTE: Use with care! Driver will fail to restart if EEPROM is disabled.
 '       Cycle power in this case.
 '   Any other value polls the chip and returns the current setting
-    readRegX (core#CONFIG, 2, 0, @tmp)
+    readReg (core#CONFIG, 2, 0, @tmp)
     case ||enabled
         0, 1:
             enabled := (1-(||enabled)) << core#FLD_EEPROMENA
@@ -167,14 +167,14 @@ PUB EEPROM(enabled) | tmp
             return (1-((tmp >> core#FLD_EEPROMENA) & %1)) * TRUE
     tmp &= core#MASK_EEPROMENA
     tmp := (tmp | enabled) & core#CONFIG_MASK
-    writeRegX (core#CONFIG, tmp)
+    writeReg (core#CONFIG, tmp)
 
 PUB GetColumn(buf_addr, col) | rawpix[2], line, offset
 ' Reads a single column of pixels from the sensor into buf_addr
     if not lookdown(col: 0..15)
         return
 
-    readRegX (col * 4, 4, 1, @rawpix)
+    readReg (col * 4, 4, 1, @rawpix)
     repeat line from 0 to 3
         offset := (col * 4) + line
         word[buf_addr][offset] := type.s16 (rawpix.word[line])
@@ -182,12 +182,12 @@ PUB GetColumn(buf_addr, col) | rawpix[2], line, offset
 PUB GetFrame(buf_addr)
 ' Reads entire frame from sensor and stores it in buffer at buf_addr
 ' This buffer must be 32 longs/64 words
-    readRegX (0, 64, 1, buf_addr)
+    readReg (0, 64, 1, buf_addr)
 
 PUB GetFrameExt(buf_addr) | line, col, rawpix[33], offset
 ' Reads entire frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at buf_addr
 ' This buffer must be 33 longs/66 words
-    readRegX (0, 66, 1, @rawpix)
+    readReg (0, 66, 1, @rawpix)
     repeat line from 0 to 3
         repeat col from 0 to 15
             offset := (col * 4) + line       'Compute offset location in array of current pixel
@@ -200,7 +200,7 @@ PUB GetLine(buf_addr, line) | rawpix[8], col, offset
 ' Reads a single line of pixels from the sensor into buf_addr
     if not lookdown(line: 0..3)
         return
-    readRegX (line, 16, 4, @rawpix)
+    readReg (line, 16, 4, @rawpix)
     repeat col from 0 to 15
         offset := (col * 4) + line
         word[buf_addr][offset] := type.s16 (rawpix.word[col])
@@ -220,7 +220,7 @@ PUB GetPixel(buf_addr, col, line) | rawpix, offset
 
     offset := (col * 4) + line 'Compute offset location in array of current pixel
 
-    readRegX (offset, 1, 0, @rawpix)
+    readReg (offset, 1, 0, @rawpix)
     return word[buf_addr][offset] := type.s16 (rawpix & $FFFF)
 
 PUB I2CFM(enabled) | tmp
@@ -232,7 +232,7 @@ PUB I2CFM(enabled) | tmp
 '       e.g., you may have started the driver at 400kHz, but left this option at the default 1000kHz.
 '       Thus, the sensor will _allow_ traffic at up to 1000kHz, but the driver will only actually be operating at 400kHz.
 '   Any other value polls the chip and returns the current setting
-    readRegX (core#CONFIG, 2, 0, @tmp)
+    readReg (core#CONFIG, 2, 0, @tmp)
     case ||enabled
         0, 1:
             enabled := (1-(||enabled)) << core#FLD_I2CFMP
@@ -240,7 +240,7 @@ PUB I2CFM(enabled) | tmp
             return (1-((tmp >> core#FLD_I2CFMP) & %1)) * TRUE
     tmp &= core#MASK_I2CFMP
     tmp := (tmp | enabled) & core#CONFIG_MASK
-    writeRegX (core#CONFIG, tmp)
+    writeReg (core#CONFIG, tmp)
 
 PUB MeasureMode(mode) | tmp
 ' Set measurement mode to continuous or one-shot/step
@@ -248,7 +248,7 @@ PUB MeasureMode(mode) | tmp
 '      MMODE_CONT (0) - Continuous (default)
 '      MMODE_STEP (1) - Step
 '   Any other value polls the chip and returns the current setting
-    readRegX (core#CONFIG, 2, 0, @tmp)
+    readReg (core#CONFIG, 2, 0, @tmp)
 
     case mode
         MMODE_CONT, MMODE_STEP:
@@ -257,14 +257,14 @@ PUB MeasureMode(mode) | tmp
             return (tmp >> core#FLD_MEASMODE) & %1
     tmp &= core#MASK_MEASMODE
     tmp := (tmp | mode) & core#CONFIG_MASK
-    writeRegX ( core#CONFIG, tmp)
+    writeReg ( core#CONFIG, tmp)
 
 PUB Measuring
 ' Measurement running
 '   Returns:
 '       FALSE: No IR measurement running
 '       TRUE: IR measurement running
-    readRegX (core#CONFIG, 2, 0, @result)
+    readReg (core#CONFIG, 2, 0, @result)
     result := ((result >> core#FLD_MEASURING) & %1) * TRUE
 
 PUB OperationMode(mode) | tmp
@@ -273,7 +273,7 @@ PUB OperationMode(mode) | tmp
 '       OPMODE_NORM (0) - Normal (default)
 '       OPMODE_SLEEP (1) - Sleep mode
 '   Any other value polls the chip and returns the current setting
-    readRegX (core#CONFIG, 2, 0, @tmp)
+    readReg (core#CONFIG, 2, 0, @tmp)
     case mode
         OPMODE_NORM, OPMODE_SLEEP:
             mode := (mode << core#FLD_OPMODE)
@@ -281,21 +281,21 @@ PUB OperationMode(mode) | tmp
             return (tmp >> core#FLD_OPMODE) & %1
     tmp &= core#MASK_OPMODE
     tmp := (tmp | mode) & core#CONFIG_MASK
-    writeRegX (core#CONFIG, tmp)
+    writeReg (core#CONFIG, tmp)
 
 PUB OSCTrim(val) | tmp
 ' Set Oscillator Trim value
 '   Valid values: 0..127
 '   Any other value polls the chip and returns the current setting
 '   NOTE: It is recommended to use the factory set value contained in the device's EEPROM.
-    readRegX (core#OSC_TRIM, 1, 0, @tmp)
+    readReg (core#OSC_TRIM, 1, 0, @tmp)
     case val
         0..127:
         OTHER:
             return tmp & core#OSC_TRIM_MASK
 
     tmp := val & core#OSC_TRIM_MASK
-    writeRegX (core#OSC_TRIM, tmp)
+    writeReg (core#OSC_TRIM, tmp)
 
 PUB Peek_EE(location)
 '' Return byte at 'location' in EEPROM memory
@@ -319,7 +319,7 @@ PUB RefreshRate(Hz) | tmp
 '   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2
 '   Any other value polls the chip and returns the current setting
 ' NOTE: Higher rates will yield noisier images
-    readRegX (core#CONFIG, 2, 0, @tmp)
+    readReg (core#CONFIG, 2, 0, @tmp)
     case Hz
         512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0:
             Hz := lookdownz(Hz: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
@@ -329,7 +329,7 @@ PUB RefreshRate(Hz) | tmp
 
     tmp &= core#MASK_REFRATE
     tmp := (tmp | Hz) & core#CONFIG_MASK
-    writeRegX (core#CONFIG, tmp)
+    writeReg (core#CONFIG, tmp)
 
 PUB Reset(set) | tmp
 ' Set sensor reset flag
@@ -337,7 +337,7 @@ PUB Reset(set) | tmp
 '   Any other value polls the chip and returns the current setting
 '   NOTE: This must be done any time the sensor is initialized, _after_ the configuration register has been updated
 '       If FALSE is returned, POR or brown-out has occurred and the process must be repeated
-    readRegX (core#CONFIG, 2, 0, @tmp)
+    readReg (core#CONFIG, 2, 0, @tmp)
     case ||set
         1:
             set := 1 << core#FLD_RESET
@@ -345,9 +345,9 @@ PUB Reset(set) | tmp
             return ((tmp >> core#FLD_RESET) & %1) * TRUE
     tmp &= core#MASK_RESET
     tmp := (tmp | set) & core#CONFIG_MASK
-    writeRegX (core#CONFIG, tmp)
+    writeReg (core#CONFIG, tmp)
 
-PUB readRegX(reg, nr_reads, rd_step, rd_buf) | cmd_packet[2]
+PRI readReg(reg, nr_reads, rd_step, rd_buf) | cmd_packet[2]
 
     cmd_packet.byte[0] := SLAVE_WR
     cmd_packet.byte[1] := core#CMD_READREG
@@ -372,7 +372,7 @@ PUB readRegX(reg, nr_reads, rd_step, rd_buf) | cmd_packet[2]
     i2c.rd_block (rd_buf, nr_reads, TRUE)
     i2c.stop
 
-PUB writeRegX(reg, val) | cmd_packet[2], nr_bytes
+PRI writeReg(reg, val) | cmd_packet[2], nr_bytes
 
     cmd_packet.byte[0] := SLAVE_WR
     case reg
@@ -403,8 +403,8 @@ PUB writeRegX(reg, val) | cmd_packet[2], nr_bytes
     i2c.wr_block (@cmd_packet, nr_bytes)
     i2c.stop
 
-PUB readData(buff_ptr, addr_start, addr_step, word_count) | cmd_packet[2]
-'XXXPRI
+PRI readData(buff_ptr, addr_start, addr_step, word_count) | cmd_packet[2]
+
     cmd_packet.byte[0] := SLAVE_WR
     cmd_packet.byte[1] := core#CMD_READREG
     cmd_packet.byte[2] := addr_start
