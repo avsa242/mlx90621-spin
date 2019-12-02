@@ -62,6 +62,7 @@ OBJ
     i2c     : "com.i2c"
     time    : "time"
     type    : "system.types"
+    u64     : "math.unsigned64"
 
 VAR
 
@@ -301,6 +302,20 @@ PUB Peek_EE(location)
 '' Return byte at 'location' in EEPROM memory
     return _ee_data.byte[location]
 
+PUB PTAT | PTAT_data, Kt1, Kt2, Vth, Ta
+' Read Proportional To Ambient Temperature sensor
+    readReg(core#PTAT, 1, 0, @PTAT_data)
+{    Kt1 := (_ee_data[$DD] << 8) | _ee_data[$DC]
+    Kt2 := (_ee_data[$DF] << 8) | _ee_data[$DE]
+    Vth := (_ee_data[$DB] << 8) | _ee_data[$DA]
+    Ta := Kt1 * Kt1
+    Ta := Ta - (4 * Kt2)
+    Ta := Ta * (Vth - PTAT_data)
+    Ta := ^^Ta
+    Ta := Ta + (-Kt1)
+    Ta := Ta / (Kt2 * 2)}
+    return PTAT_data
+
 PUB Read_EE
 '' Read EEPROM contents into RAM
     bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
@@ -311,7 +326,7 @@ PUB Read_EE
 
     i2c.start                           'Read in the EEPROM
     i2c.write (core#EE_SLAVE_ADDR|1)
-    i2c.rd_block (@_ee_data, EE_SIZE-1, TRUE)
+    i2c.rd_block (@_ee_data, EE_SIZE, TRUE)
     i2c.stop
 
 PUB RefreshRate(Hz) | tmp

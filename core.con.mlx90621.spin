@@ -23,6 +23,9 @@ CON
     CMD_WRITEREG_OSCTRIM    = $04
     CMD_STEP_MEASURE        = $81
 
+    PTAT                    = $40
+    COMP_PIXEL              = $41
+
     CONFIG                  = $92
     CONFIG_MASK             = $5EFF
         FLD_REFRATE         = 0
