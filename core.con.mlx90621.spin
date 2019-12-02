@@ -17,11 +17,11 @@ CON
     EE_MAX_FREQ             = 400_000
     EE_SLAVE_ADDR           = $50 << 1
 
-'' Register definitions
+' Register definitions
     CMD_READREG             = $02
     CMD_WRITEREG_CFG        = $03
     CMD_WRITEREG_OSCTRIM    = $04
-    CMD_STEP_MEASURE        = $81
+    CMD_STEP_MEASURE        = $0801
 
     PTAT                    = $40
     COMP_PIXEL              = $41
