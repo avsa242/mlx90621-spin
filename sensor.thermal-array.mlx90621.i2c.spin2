@@ -59,7 +59,6 @@ OBJ
     core    : "core.con.mlx90621"
     i2c     : "com.i2c"
     time    : "time"
-    type    : "system.types"
     u64     : "math.unsigned64"
 
 VAR
