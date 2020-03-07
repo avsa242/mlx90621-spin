@@ -1,12 +1,12 @@
 {
     --------------------------------------------
-    Filename: sensor.thermal.array.mlx90621.spin
+    Filename: sensor.thermal-array.mlx90621.i2c.spin
     Author: Jesse Burt
     Description: Driver for the Melexis MLX90621
-     16x4 IR array (I2C).
-    Copyright (c) 2019
+     16x4 IR array
+    Copyright (c) 2020
     Started: Jan 14, 2018
-    Updated: Mar 23, 2019
+    Updated: Mar 7, 2020
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -18,7 +18,7 @@ CON
 
     DEF_SCL         = 28
     DEF_SDA         = 29
-    DEF_HZ          = 400_000
+    DEF_HZ          = 100_000
     I2C_MAX_FREQ    = core#I2C_MAX_FREQ
 
     EE_SIZE         = 256
@@ -72,7 +72,7 @@ VAR
     byte _ee_data[EE_SIZE]
 
 PUB Null
-''This is not a top-level object
+'This is not a top-level object
 
 PUB Start: okay                                                 'Default to "standard" Propeller I2C pins and 400kHz
 
@@ -82,14 +82,14 @@ PUB Startx(SCL_PIN, SDA_PIN, I2C_HZ): okay
 
     if lookdown(SCL_PIN: 0..31) and lookdown(SDA_PIN: 0..31)
         if I2C_HZ =< core#I2C_MAX_FREQ
-            if okay := i2c.setupx (SCL_PIN, SDA_PIN, core#EE_MAX_FREQ)  'First, start the I2C object...
+            if okay := i2c.Setupx (SCL_PIN, SDA_PIN, I2C_HZ)            ' Start the I2C driver
                 time.MSleep (3)
-                if i2c.present (core#EE_SLAVE_ADDR)
-                    Read_EE                                             '...to read the EEPROM.
-                    i2c.terminate                                       'Shut it down.
-                    if okay := i2c.setupx (SCL_PIN, SDA_PIN, I2C_HZ)    'Then start it back up,
-                        time.MSleep (5)                                 ' but this time setup for the sensor
-                        if i2c.present (SLAVE_WR)                       'Check for response from device
+                if i2c.Present (core#EE_SLAVE_ADDR)
+                    ReadEEPROM                                          '   ...to read the EEPROM.
+                    i2c.terminate
+                    if okay := i2c.setupx (SCL_PIN, SDA_PIN, I2C_HZ)    ' This time re-setup for the sensor
+                        time.MSleep (5)
+                        if i2c.Present (SLAVE_WR)                       ' Check for response
                             return okay
 
     return FALSE                                                        'If we got here, something went wrong
@@ -100,7 +100,7 @@ PUB Stop
 
 PUB Defaults
 
-    OSCTrim (peek_ee (EE_OFFS_OSCTRIM)) ' Write osc trimming val extracted from EEPROM address $F7
+    OSCTrim (_ee_data[EE_OFFS_OSCTRIM]) ' Write osc trimming val extracted from EEPROM address $F7
     RefreshRate (1)
     ADCRes (18)
     MeasureMode (MMODE_CONT)
@@ -115,7 +115,7 @@ PUB ADCReference(mode) | tmp
 ' Set ADC reference high, low
 '   Valid values:
 '      ADCREF_HI (0) - ADC High reference enabled
-'      ADCREF_LO (1) - ADC Low reference enabled (default)
+'     *ADCREF_LO (1) - ADC Low reference enabled
 '   Any other value polls the chip and returns the current setting
 ' NOTE: Re-calibration must be done after this method is called
     readReg (core#CONFIG, 2, 0, @tmp)
@@ -132,7 +132,7 @@ PUB ADCReference(mode) | tmp
 
 PUB ADCRes(bits) | tmp
 ' Set ADC resolution, in bits
-'   Valid values: 15..18
+'   Valid values: 15..18 (default: 18)
 '   Any other value polls the chip and returns the current setting
     readReg (core#CONFIG, 2, 0, @tmp)
     case bits
@@ -147,19 +147,19 @@ PUB ADCRes(bits) | tmp
 
 '    _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
-PUB Dump_EE(ee_buf)
-'' Copy downloaded EEPROM image to ee_buf
-'' NOTE: Make sure ee_buf is 256 bytes in size!
-    bytemove(ee_buf, @_ee_data, EE_SIZE-1)
+PUB Dump_EE(buff_addr)
+' Copy downloaded EEPROM image to buff_addr
+' NOTE: This buffer must be at least 256 bytes
+    bytemove(buff_addr, @_ee_data, EE_SIZE)
 
 PUB EEPROM(enabled) | tmp
 ' Enable/disable the sensor's built-in EEPROM
 '   Valid values:
 '      TRUE (-1 or 1): Sensor's built-in EEPROM enabled (default)
 '      FALSE: Sensor's built-in EEPROM disabled
+'   Any other value polls the chip and returns the current setting
 '   NOTE: Use with care! Driver will fail to restart if EEPROM is disabled.
 '       Cycle power in this case.
-'   Any other value polls the chip and returns the current setting
     readReg (core#CONFIG, 2, 0, @tmp)
     case ||enabled
         0, 1:
@@ -170,45 +170,48 @@ PUB EEPROM(enabled) | tmp
     tmp := (tmp | enabled) & core#CONFIG_MASK
     writeReg (core#CONFIG, tmp)
 
-PUB GetColumn(buf_addr, col) | rawpix[2], line, offset
-' Reads a single column of pixels from the sensor into buf_addr
+PUB GetColumn(buff_addr, col) | rawpix[2], line, offset
+' Read a single column of pixels from the sensor into buff_addr
+'   NOTE This buffer must be at least 4 words
     if not lookdown(col: 0..15)
         return
 
     readReg (col * 4, 4, 1, @rawpix)
     repeat line from 0 to 3
         offset := (col * 4) + line
-        word[buf_addr][offset] := type.s16 (rawpix.word[line])
+        word[buff_addr][offset] := type.u16_s16 (rawpix.word[line])
 
-PUB GetFrame(buf_addr)
-' Reads entire frame from sensor and stores it in buffer at buf_addr
-' This buffer must be 32 longs/64 words
-    readReg (0, 64, 1, buf_addr)
+PUB GetFrame(buff_addr)
+' Read entire frame from sensor and stores it in buffer at buff_addr
+'   NOTE: This buffer must be at least 64 words
+    readReg (0, 64, 1, buff_addr)
 
-PUB GetFrameExt(buf_addr) | line, col, rawpix[33], offset
-' Reads entire frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at buf_addr
-' This buffer must be 33 longs/66 words
+PUB GetFrameExt(buff_addr) | line, col, rawpix[33], offset
+' Read entire frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at buff_addr
+'   NOTE: This buffer must be at least 66 words
     readReg (0, 66, 1, @rawpix)
     repeat line from 0 to 3
         repeat col from 0 to 15
             offset := (col * 4) + line       'Compute offset location in array of current pixel
-            word[buf_addr][offset] := type.s16 (rawpix.word[offset])
+            word[buff_addr][offset] := type.u16_s16 (rawpix.word[offset])
 
-    _PTAT := (word[buf_addr][RAM_OFFS_PTAT] := rawpix.word[RAM_OFFS_PTAT])  ' Get PTAT data
-    word[buf_addr][RAM_OFFS_CPIX] := rawpix.word[RAM_OFFS_CPIX]             ' and Compensation Pixel, too
+    _PTAT := (word[buff_addr][RAM_OFFS_PTAT] := rawpix.word[RAM_OFFS_PTAT])  ' Get PTAT data
+    word[buff_addr][RAM_OFFS_CPIX] := rawpix.word[RAM_OFFS_CPIX]             ' and Compensation Pixel, too
 
-PUB GetLine(buf_addr, line) | rawpix[8], col, offset
-' Reads a single line of pixels from the sensor into buf_addr
+PUB GetLine(buff_addr, line) | rawpix[8], col, offset
+' Read a single line of pixels from the sensor into buff_addr
+'   NOTE: This buffer must be at least 16 words
     if not lookdown(line: 0..3)
         return
     readReg (line, 16, 4, @rawpix)
     repeat col from 0 to 15
         offset := (col * 4) + line
-        word[buf_addr][offset] := type.s16 (rawpix.word[col])
+        word[buff_addr][offset] := type.u16_s16 (rawpix.word[col])
 
-PUB GetPixel(buf_addr, col, line) | rawpix, offset
-' Reads a single pixel from the sensor into buf_addr
-'   NOTE: Also passes the pixel in the return value
+PUB GetPixel(buff_addr, col, line) | rawpix, offset
+' Read a single pixel from the sensor into buff_addr
+'   Returns: pixel value
+'   NOTE: This buffer must be at least 1 word
     case lookdown(col: 0..15)
         1..16:
         OTHER:
@@ -222,13 +225,13 @@ PUB GetPixel(buf_addr, col, line) | rawpix, offset
     offset := (col * 4) + line 'Compute offset location in array of current pixel
 
     readReg (offset, 1, 0, @rawpix)
-    return word[buf_addr][offset] := type.s16 (rawpix & $FFFF)
+    return word[buff_addr][offset] := type.u16_s16 (rawpix & $FFFF)
 
 PUB I2CFM(enabled) | tmp
 ' Enable I2C Fast Mode+
 '   Valid values:
-'      TRUE (-1 or 1): Max I2C bus speed 1000kbit/sec (default)
-'      FALSE: Max I2C bus speed 400kbit/sec
+'     *TRUE (-1 or 1): Max I2C bus speed 1000kbit/sec
+'      FALSE (0): Max I2C bus speed 400kbit/sec
 '   NOTE: This is independent of, and has no effect on what speed the driver was started with.
 '       e.g., you may have started the driver at 400kHz, but left this option at the default 1000kHz.
 '       Thus, the sensor will _allow_ traffic at up to 1000kHz, but the driver will only actually be operating at 400kHz.
@@ -243,10 +246,16 @@ PUB I2CFM(enabled) | tmp
     tmp := (tmp | enabled) & core#CONFIG_MASK
     writeReg (core#CONFIG, tmp)
 
+PUB Measure
+' Perform measurement, when MeasureMode is set to MMODE_STEP
+'   NOTE: This method waits/blocks while a measurement is ongoing
+    writeReg(core#CMD_STEP_MEASURE, 0)
+    repeat while Measuring
+
 PUB MeasureMode(mode) | tmp
 ' Set measurement mode to continuous or one-shot/step
 '   Valid values:
-'      MMODE_CONT (0) - Continuous (default)
+'     *MMODE_CONT (0) - Continuous
 '      MMODE_STEP (1) - Step
 '   Any other value polls the chip and returns the current setting
     readReg (core#CONFIG, 2, 0, @tmp)
@@ -258,20 +267,21 @@ PUB MeasureMode(mode) | tmp
             return (tmp >> core#FLD_MEASMODE) & %1
     tmp &= core#MASK_MEASMODE
     tmp := (tmp | mode) & core#CONFIG_MASK
-    writeReg ( core#CONFIG, tmp)
+    writeReg (core#CONFIG, tmp)
 
 PUB Measuring
-' Measurement running
+' Flag indicating a measurement is running
 '   Returns:
-'       FALSE: No IR measurement running
-'       TRUE: IR measurement running
+'       FALSE (0): No IR measurement running
+'       TRUE (-1): IR measurement running
+'   NOTE: This method is intended for use when MeasureMode is set to MMODE_STEP
     readReg (core#CONFIG, 2, 0, @result)
     result := ((result >> core#FLD_MEASURING) & %1) * TRUE
 
 PUB OperationMode(mode) | tmp
-' Set Operation mode
+' Set operation mode
 '   Valid values:
-'       OPMODE_NORM (0) - Normal (default)
+'      *OPMODE_NORM (0) - Normal
 '       OPMODE_SLEEP (1) - Sleep mode
 '   Any other value polls the chip and returns the current setting
     readReg (core#CONFIG, 2, 0, @tmp)
@@ -286,7 +296,7 @@ PUB OperationMode(mode) | tmp
 
 PUB OSCTrim(val) | tmp
 ' Set Oscillator Trim value
-'   Valid values: 0..127
+'   Valid values: 0..127 (default: 0)
 '   Any other value polls the chip and returns the current setting
 '   NOTE: It is recommended to use the factory set value contained in the device's EEPROM.
     readReg (core#OSC_TRIM, 1, 0, @tmp)
@@ -297,10 +307,6 @@ PUB OSCTrim(val) | tmp
 
     tmp := val & core#OSC_TRIM_MASK
     writeReg (core#OSC_TRIM, tmp)
-
-PUB Peek_EE(location)
-'' Return byte at 'location' in EEPROM memory
-    return _ee_data.byte[location]
 
 PUB PTAT | PTAT_data, Kt1, Kt2, Vth, Ta
 ' Read Proportional To Ambient Temperature sensor
@@ -316,24 +322,24 @@ PUB PTAT | PTAT_data, Kt1, Kt2, Vth, Ta
     Ta := Ta / (Kt2 * 2)}
     return PTAT_data
 
-PUB Read_EE
-'' Read EEPROM contents into RAM
+PUB ReadEEPROM
+' Read EEPROM contents into RAM
     bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
 
-    i2c.start                           'Start reading at addr $00
-    i2c.write (core#EE_SLAVE_ADDR)
-    i2c.write ($00)
+    i2c.Start                           'Start reading at addr $00
+    i2c.Write (core#EE_SLAVE_ADDR)
+    i2c.Write ($00)
 
-    i2c.start                           'Read in the EEPROM
-    i2c.write (core#EE_SLAVE_ADDR|1)
-    i2c.rd_block (@_ee_data, EE_SIZE, TRUE)
-    i2c.stop
+    i2c.Start                           'Read in the EEPROM
+    i2c.Write (core#EE_SLAVE_ADDR|1)
+    i2c.Rd_Block (@_ee_data, EE_SIZE, TRUE)
+    i2c.Stop
 
 PUB RefreshRate(Hz) | tmp
 ' Set sensor refresh rate
-'   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2
+'   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2 (default: 1)
 '   Any other value polls the chip and returns the current setting
-' NOTE: Higher rates will yield noisier images
+'   NOTE: Higher rates will yield noisier images
     readReg (core#CONFIG, 2, 0, @tmp)
     case Hz
         512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0:

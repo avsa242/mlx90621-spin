@@ -4,9 +4,9 @@
     Author: Jesse Burt
     Description: Driver for the Melexis MLX90621
      16x4 IR array (P2 version)
-    Copyright (c) 2019
+    Copyright (c) 2020
     Started: Dec 2, 2019
-    Updated: Dec 2, 2019
+    Updated: Mar 7, 2020
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -16,7 +16,7 @@ CON
     SLAVE_WR        = core#SLAVE_ADDR
     SLAVE_RD        = core#SLAVE_ADDR|1
 
-    DEF_HZ          = 400_000
+    DEF_HZ          = 100_000
     I2C_MAX_FREQ    = core#I2C_MAX_FREQ
 
     EE_SIZE         = 256
@@ -69,18 +69,19 @@ VAR
     byte _ee_data[EE_SIZE]
 
 PUB Null
-''This is not a top-level object
+'This is not a top-level object
 
-PUB Start(SCL_PIN, SDA_PIN, I2C_HZ=100_000): okay | tmp
+PUB Start(SCL_PIN, SDA_PIN, I2C_HZ=100_000): okay
 
     if lookdown(SCL_PIN: 0..63) and lookdown(SDA_PIN: 0..63)
         if I2C_HZ =< core#I2C_MAX_FREQ
-            if okay := i2c.Setup (SCL_PIN, SDA_PIN, 100_000)'core#EE_MAX_FREQ)   ' Start the I2C driver
+            if okay := i2c.Setup (SCL_PIN, SDA_PIN, I2C_HZ)             ' Start the I2C driver
                 time.MSleep (3)
                 if i2c.Present (core#EE_SLAVE_ADDR)
-                    Read_EE                                             '   ...to read the EEPROM.
+                    ReadEEPROM                                          '   ...to read the EEPROM.
                     time.MSleep (5)
                     i2c.Setup (SCL_PIN, SDA_PIN, I2C_HZ)                ' This time re-setup for the sensor
+                    time.MSleep (5)
                     if i2c.Present (SLAVE_WR)                           ' Check for response
                         return okay
 
@@ -103,7 +104,7 @@ PUB Defaults
     Reset (TRUE)
     time.MSleep (5)
 
-PUB ADCReference(mode) | tmp
+PUB ADCReference(mode=-2) | tmp
 ' Set ADC reference high, low
 '   Valid values:
 '      ADCREF_HI (0) - ADC High reference enabled
@@ -122,7 +123,7 @@ PUB ADCReference(mode) | tmp
 
 'TODO: Call Re-cal method here
 
-PUB ADCRes(bits) | tmp
+PUB ADCRes(bits=-2) | tmp
 ' Set ADC resolution, in bits
 '   Valid values: 15..18 (default: 18)
 '   Any other value polls the chip and returns the current setting
@@ -219,7 +220,7 @@ PUB GetPixel(buff_addr, col, line) | rawpix, offset
     readReg (offset, 1, 0, @rawpix)
     return word[buff_addr][offset] := u16s16 (rawpix & $FFFF)
 
-PUB I2CFM(enabled) | tmp
+PUB I2CFM(enabled=-2) | tmp
 ' Enable I2C Fast Mode+
 '   Valid values:
 '     *TRUE (-1 or 1): Max I2C bus speed 1000kbit/sec
@@ -244,7 +245,7 @@ PUB Measure
     writeReg(core#CMD_STEP_MEASURE, 0)
     repeat while Measuring
 
-PUB MeasureMode(mode) | tmp
+PUB MeasureMode(mode=-2) | tmp
 ' Set measurement mode to continuous or one-shot/step
 '   Valid values:
 '     *MMODE_CONT (0) - Continuous
@@ -262,7 +263,7 @@ PUB MeasureMode(mode) | tmp
     writeReg (core#CONFIG, tmp)
 
 PUB Measuring
-' Indicates a measurement is running
+' Flag indicating a measurement is running
 '   Returns:
 '       FALSE (0): No IR measurement running
 '       TRUE (-1): IR measurement running
@@ -270,7 +271,7 @@ PUB Measuring
     readReg (core#CONFIG, 2, 0, @result)
     result := ((result >> core#FLD_MEASURING) & %1) * TRUE
 
-PUB OperationMode(mode) | tmp
+PUB OperationMode(mode=-2) | tmp
 ' Set operation mode
 '   Valid values:
 '      *OPMODE_NORM (0) - Normal
@@ -286,7 +287,7 @@ PUB OperationMode(mode) | tmp
     tmp := (tmp | mode) & core#CONFIG_MASK
     writeReg (core#CONFIG, tmp)
 
-PUB OSCTrim(val) | tmp
+PUB OSCTrim(val=-2) | tmp
 ' Set Oscillator Trim value
 '   Valid values: 0..127 (default: 0)
 '   Any other value polls the chip and returns the current setting
@@ -314,8 +315,8 @@ PUB PTAT | PTAT_data, Kt1, Kt2, Vth, Ta
     Ta := Ta / (Kt2 * 2)}
     return PTAT_data
 
-PUB Read_EE | tmp
-'' Read EEPROM contents into RAM
+PUB ReadEEPROM | tmp
+' Read EEPROM contents into RAM
     bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
 
     i2c.Start                           'Start reading at addr $00
@@ -328,9 +329,9 @@ PUB Read_EE | tmp
         _ee_data[tmp] := i2c.Read (tmp == EE_SIZE-1)
     i2c.Stop
 
-PUB RefreshRate(Hz) | tmp
+PUB RefreshRate(Hz=-2) | tmp
 ' Set sensor refresh rate
-'   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2
+'   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2 (default: 1)
 '   Any other value polls the chip and returns the current setting
 '   NOTE: Higher rates will yield noisier images
     readReg (core#CONFIG, 2, 0, @tmp)
@@ -345,7 +346,7 @@ PUB RefreshRate(Hz) | tmp
     tmp := (tmp | Hz) & core#CONFIG_MASK
     writeReg (core#CONFIG, tmp)
 
-PUB Reset(set) | tmp
+PUB Reset(set=-2) | tmp
 ' Set sensor reset flag
 '   Valid values: TRUE (-1 or 1)
 '   Any other value polls the chip and returns the current setting

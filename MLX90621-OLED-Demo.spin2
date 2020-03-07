@@ -4,9 +4,9 @@
     Author: Jesse Burt
     Description: Demo of the MLX90621 driver using
         an SSD1331 OLED as a display (P2 version)
-    Copyright (c) 2019
+    Copyright (c) 2020
     Started: Dec 2, 2019
-    Updated: Dec 2, 2019
+    Updated: Mar 7, 2020
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -36,9 +36,9 @@ CON
     CLK_PIN     = 33
     DIN_PIN     = 32
 
-    SCL         = 28
-    SDA         = 27
-    I2C_FREQ    = 1_000_000
+    I2C_SCL     = 28
+    I2C_SDA     = 27
+    I2C_HZ      = 1_000_000
 
     BUFFSZ      = 96*64
     XMAX        = 95
@@ -50,7 +50,7 @@ OBJ
     ser     : "com.serial.terminal.ansi"
     time    : "time"
     io      : "io"
-    therm   : "sensor.thermal-array.mlx90621.i2c.spin2"
+    mlx     : "sensor.thermal-array.mlx90621.i2c.spin2"
     oled    : "display.oled.ssd1331.spi"
     int     : "string.integer"
 
@@ -66,7 +66,7 @@ VAR
 
     long _offset
 
-    word _ir_frame[64], _frame_buff[6144]
+    word _ir_frame[64], _frame_buff[BUFFSZ]
 
     byte _ee_img[256]
     byte _sx, _sy, _width, _height
@@ -84,26 +84,26 @@ PUB Main | x, y
     _width := 5        ' Size of each pixel
     _height := 5
 
-'    DumpConfig
     DrawScale
 
     repeat
-        therm.GetFrame (@_ir_frame)
+        mlx.GetFrame (@_ir_frame)
         DrawFrame
 
 PUB Constrain(val, lower, upper)
 
     return lower #> val <# upper
 
-PUB DrawFrame | x, y, color_c, color_cl, color_cr, color_cbr, color_cb, k, l, r, br, b, scale
+PUB DrawFrame | x, y, color_c, k, ex, ey
 ' Draw the thermal image
+    ex := _sx + _width
+    ey := _sy + _height
     repeat y from 0 to 3
         repeat x from 0 to 15
-'            k := x + (4 * y)
             k := (x * 4) + y
             color_c := GetColor ((_ir_frame.word[k]+_offset))   ' Computed color
 '            color_c := _ir_frame.word[k]+_offset               ' Raw value from sensor
-            oled.box((x * 6) + _sx, (y * 6) + _sy, (x * 6) + _sx + _width, (y * 6) + _sy + _height, color_c, TRUE)
+            oled.box((x * 6) + _sx, (y * 6) + _sy, (x * 6) + ex, (y * 6) + ey, color_c, TRUE)
 
     oled.Update
 
@@ -119,7 +119,7 @@ PUB DrawScale | i
 '    oled.box(_sx-2, _sy-2, (_width*20) + sx+1, (_height*5) + sy+1, $FFFF)
     oled.Update
 
-PUB GetColor(val) | red, green, blue, inmax, outmax, divisor, tmp
+PUB GetColor(val) | red, green, blue, inmax, outmax, divisor
 ' Get color of input value based on 4-point scale
 '   XXX broken
     longfill(@red, $00, 6)  ' initialize all of the variables to 0
@@ -149,9 +149,7 @@ PUB GetColor(val) | red, green, blue, inmax, outmax, divisor, tmp
 '    return (red << 16) | (green << 8) | blue
 
 ' RGB565 format
-    tmp := ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)    ' byte order is wrong 
-    result.byte[0] := tmp.byte[1]
-    result.byte[1] := tmp.byte[0]
+    return ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
 
 PUB keydaemon | cmd
 
@@ -163,15 +161,11 @@ PUB keydaemon | cmd
                 if _offset < 0
                     _offset := 0
                 ser.Position(0, 11)
-                ser.PrintF("Offset: ")
-                ser.Dec (_offset)
-                ser.NewLine
+                ser.printf("Offset: %d\n", _offset)
             "=":
                 _offset := (_offset + 1000) <# 65535
                 ser.Position(0, 11)
-                ser.PrintF("Offset: ")
-                ser.Dec (_offset)
-                ser.NewLine
+                ser.printf("Offset: %d\n", _offset)
             "e":
                 HexDump(@_ee_img)
             "t":
@@ -181,10 +175,10 @@ PUB keydaemon | cmd
 PUB HexDump(ptr) | seg, off
 
     ser.Position(0, 14)
-    therm.dump_ee (ptr)
-    repeat seg from 0 to therm#EE_SIZE-8 step 8
+    mlx.dump_ee (ptr)
+    repeat seg from 0 to mlx#EE_SIZE-8 step 8
         ser.Hex (seg, 2)
-        ser.PrintF(": ")
+        ser.printf(": ")
         repeat off from 0 to 7
             ser.Hex (byte[ptr][seg+off], 2)
             ser.Char (" ")
@@ -192,37 +186,14 @@ PUB HexDump(ptr) | seg, off
 
 PUB DumpConfig
 
-    ser.PrintF("Refresh rate: ")
-    ser.Dec (therm.RefreshRate (-2))
-    ser.NewLine
-
-    ser.PrintF("ADC Res: ")
-    ser.Dec (therm.ADCRes (-2))
-    ser.NewLine
-
-    ser.PrintF("Reset: ")
-    ser.Dec (therm.Reset (-2))
-    ser.NewLine
-
-    ser.PrintF("ADC Ref: ")
-    ser.Dec (therm.ADCReference (-2))
-    ser.NewLine
-
-    ser.PrintF("Measure mode: ")
-    ser.Dec (therm.MeasureMode (-2))
-    ser.NewLine
-
-    ser.PrintF("Operation mode: ")
-    ser.Dec (therm.OperationMode (-2))
-    ser.NewLine
-
-    ser.PrintF("I2C Fast Mode+: ")
-    ser.Dec (therm.I2CFM (-2))
-    ser.NewLine
-
-    ser.PrintF("Oscillator Trim val: $")
-    ser.Hex (therm.OSCTrim (-2), 2)
-    ser.NewLine
+    ser.printf("Refresh rate: %d\n", mlx.RefreshRate)
+    ser.printf("ADC Res: %d bits\n", mlx.ADCRes)
+    ser.printf("Reset bit: %d\n", mlx.Reset)
+    ser.printf("ADC Reference: %d\n", mlx.ADCReference)
+    ser.printf("Measure mode: %d\n", mlx.MeasureMode)
+    ser.printf("Operation mode: %d\n", mlx.OperationMode)
+    ser.printf("I2C Fast Mode+: %d\n", mlx.I2CFM)
+    ser.printf("Oscillator Trim val: $%x\n", mlx.OSCTrim)
 
 PUB DumpFrame | line, col, k
 
@@ -256,14 +227,14 @@ PUB Setup
     clkset(ENAFREQ, CLOCKFREQ, XSEL)
     repeat until _ser_cog := ser.StartRXTX (SER_RX, SER_TX, 0, SER_BAUD)
     ser.Clear
-    ser.PrintF("Serial terminal started\n")
+    ser.printf("Serial terminal started\n")
 
     if oled.Start (CS_PIN, DC_PIN, DIN_PIN, CLK_PIN, RES_PIN)
-        ser.PrintF("SSD1331 driver started\n")
+        ser.printf("SSD1331 driver started\n")
         oled.Defaults
         oled.Address(@_frame_buff)
         oled.ClockDiv(1)
-        oled.ClockFreq(15)
+        oled.ClockFreq(956)
         oled.AddrIncMode (oled#ADDR_HORIZ)
         oled.MirrorH (FALSE)
         oled.SubpixelOrder (oled#SUBPIX_RGB)
@@ -275,35 +246,30 @@ PUB Setup
         oled.Fill(TRUE)
         oled.Contrast (127)
     else
-        ser.PrintF("SSD1331 driver failed to start - halting\n")
+        ser.printf("SSD1331 driver failed to start - halting\n")
         time.MSleep (5)
         oled.stop
-        therm.Stop
+        mlx.Stop
         repeat
 
-    if therm.Start (SCL, SDA, I2C_FREQ)
-        ser.PrintF("MLX90621 object started\n")
+    if mlx.Start (I2C_SCL, I2C_SDA, I2C_HZ)
+        ser.printf("MLX90621 object started\n")
         ser.NewLine
     else
-        ser.PrintF("MLX90621 object failed to start - halting\n")
+        ser.printf("MLX90621 object failed to start - halting\n")
         time.MSleep (5)
         oled.stop
-        therm.Stop
+        mlx.Stop
         repeat
 
-    therm.Defaults
-    therm.MeasureMode(therm#MMODE_CONT)
-    therm.ADCRes (18)
-    therm.RefreshRate (32)
+    mlx.Defaults
+    mlx.MeasureMode(mlx#MMODE_CONT)
+    mlx.ADCRes (18)
+    mlx.RefreshRate (32)
 
     cognew(keydaemon, @_keydaemon_stack)
 
-PUB FlashLED(led_pin, delay_ms)
-
-    io.Output(led_pin)
-    repeat
-        io.Toggle(led_pin)
-        time.MSleep(delay_ms)
+#include "lib.utility.spin2"
 
 DAT
 {
