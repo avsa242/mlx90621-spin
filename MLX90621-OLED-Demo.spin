@@ -199,12 +199,12 @@ PUB DumpConfig
     ser.Dec (mlx.ADCReference (-2))
     ser.NewLine
 
-    ser.str(string("Measure mode: "))
-    ser.Dec (mlx.MeasureMode (-2))
+    ser.str(string("OpMode: "))
+    ser.Dec (mlx.OpMode (-2))
     ser.NewLine
 
-    ser.str(string("Operation mode: "))
-    ser.Dec (mlx.OperationMode (-2))
+    ser.str(string("Sensor powered: "))
+    ser.Dec (mlx.Powered (-2))
     ser.NewLine
 
     ser.str(string("I2C Fast Mode+: "))
@@ -265,7 +265,6 @@ PUB Setup
         oled.ClearAll
         oled.Fill(TRUE)
         oled.Contrast (127)
-        oled.Update
     else
         ser.str(string("SSD1331 driver failed to start - halting", ser#CR, ser#LF))
         time.MSleep (5)
@@ -274,17 +273,17 @@ PUB Setup
         repeat
 
     if mlx.Startx (I2C_SCL, I2C_SDA, I2C_HZ)
-        ser.str(string("MLX90621 object started", ser#CR, ser#LF))
+        ser.str(string("MLX90621 driver started", ser#CR, ser#LF))
         ser.NewLine
     else
-        ser.str(string("MLX90621 object failed to start - halting", ser#CR, ser#LF))
+        ser.str(string("MLX90621 driver failed to start - halting", ser#CR, ser#LF))
         time.MSleep (5)
         oled.stop
         mlx.Stop
         repeat
 
     mlx.Defaults
-    mlx.MeasureMode(mlx#MMODE_CONT)
+    mlx.OpMode(mlx#CONT)
     mlx.ADCRes (18)
     mlx.RefreshRate (32)
 

@@ -18,8 +18,8 @@ This is a P8X32A/Propeller, P2X8C4M64P/Propeller 2 driver object for Melexis's M
 
 ## Compiler Compatibility
 
-* P1/SPIN1: OpenSpin (tested with 1.00.81)
-* P2/SPIN2: FastSpin (tested with 4.0.3)
+- [x] P1/SPIN1: OpenSpin (tested with 1.00.81)
+- [x] P2/SPIN2: FastSpin (tested with 4.0.3)
 
 ## Limitations
 

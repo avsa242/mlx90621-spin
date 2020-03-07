@@ -98,6 +98,7 @@ PUB DrawFrame | x, y, color_c, k, ex, ey
 ' Draw the thermal image
     ex := _sx + _width
     ey := _sy + _height
+
     repeat y from 0 to 3
         repeat x from 0 to 15
             k := (x * 4) + y
@@ -190,8 +191,8 @@ PUB DumpConfig
     ser.printf("ADC Res: %d bits\n", mlx.ADCRes)
     ser.printf("Reset bit: %d\n", mlx.Reset)
     ser.printf("ADC Reference: %d\n", mlx.ADCReference)
-    ser.printf("Measure mode: %d\n", mlx.MeasureMode)
-    ser.printf("Operation mode: %d\n", mlx.OperationMode)
+    ser.printf("OpMode: %d\n", mlx.OpMode)
+    ser.printf("Sensor powered: %d\n", mlx.Powered)
     ser.printf("I2C Fast Mode+: %d\n", mlx.I2CFM)
     ser.printf("Oscillator Trim val: $%x\n", mlx.OSCTrim)
 
@@ -253,17 +254,17 @@ PUB Setup
         repeat
 
     if mlx.Start (I2C_SCL, I2C_SDA, I2C_HZ)
-        ser.printf("MLX90621 object started\n")
+        ser.printf("MLX90621 driver started\n")
         ser.NewLine
     else
-        ser.printf("MLX90621 object failed to start - halting\n")
+        ser.printf("MLX90621 driver failed to start - halting\n")
         time.MSleep (5)
         oled.stop
         mlx.Stop
         repeat
 
     mlx.Defaults
-    mlx.MeasureMode(mlx#MMODE_CONT)
+    mlx.OpMode(mlx#CONT)
     mlx.ADCRes (18)
     mlx.RefreshRate (32)
 

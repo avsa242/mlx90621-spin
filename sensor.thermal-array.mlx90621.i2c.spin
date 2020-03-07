@@ -23,21 +23,27 @@ CON
 
     EE_SIZE         = 256
 
+' I2C Fast Mode
     I2CFMODE_ENA    = 0
     I2CFMODE_DIS    = 1
 
-    MMODE_CONT      = 0
-    MMODE_STEP      = 1
+' Operation modes
+    CONT            = 0
+    SINGLE          = 1
 
-    OPMODE_NORM     = 0
-    OPMODE_SLEEP    = 1
+' Sensor power states
+    OFF             = 0
+    ON              = 1
 
+' ADC reference settings
     ADCREF_HI       = 0
     ADCREF_LO       = 1
 
+' On-sensor EEPROM
     EE_ENA          = 0
     EE_DIS          = 1
 
+' Offsets to sensor calibration data
     EE_OFFS_VTH     = $DA
     EE_OFFS_KT1     = $DC
     EE_OFFS_KT2     = $DE
@@ -74,7 +80,7 @@ VAR
 PUB Null
 'This is not a top-level object
 
-PUB Start: okay                                                 'Default to "standard" Propeller I2C pins and 400kHz
+PUB Start: okay                                                 'Default to "standard" Propeller I2C pins and 100kHz
 
     okay := Startx (DEF_SCL, DEF_SDA, DEF_HZ)
 
@@ -103,8 +109,8 @@ PUB Defaults
     OSCTrim (_ee_data[EE_OFFS_OSCTRIM]) ' Write osc trimming val extracted from EEPROM address $F7
     RefreshRate (1)
     ADCRes (18)
-    MeasureMode (MMODE_CONT)
-    OperationMode (OPMODE_NORM)
+    OpMode (CONT)
+    Powered (TRUE)
     I2CFM (TRUE)
     EEPROM (TRUE)
     ADCReference (ADCREF_LO)
@@ -247,50 +253,34 @@ PUB I2CFM(enabled) | tmp
     writeReg (core#CONFIG, tmp)
 
 PUB Measure
-' Perform measurement, when MeasureMode is set to MMODE_STEP
+' Perform measurement, when OpMode is set to SINGLE
 '   NOTE: This method waits/blocks while a measurement is ongoing
     writeReg(core#CMD_STEP_MEASURE, 0)
     repeat while Measuring
-
-PUB MeasureMode(mode) | tmp
-' Set measurement mode to continuous or one-shot/step
-'   Valid values:
-'     *MMODE_CONT (0) - Continuous
-'      MMODE_STEP (1) - Step
-'   Any other value polls the chip and returns the current setting
-    readReg (core#CONFIG, 2, 0, @tmp)
-
-    case mode
-        MMODE_CONT, MMODE_STEP:
-            mode := (mode << core#FLD_MEASMODE)
-        OTHER:
-            return (tmp >> core#FLD_MEASMODE) & %1
-    tmp &= core#MASK_MEASMODE
-    tmp := (tmp | mode) & core#CONFIG_MASK
-    writeReg (core#CONFIG, tmp)
 
 PUB Measuring
 ' Flag indicating a measurement is running
 '   Returns:
 '       FALSE (0): No IR measurement running
 '       TRUE (-1): IR measurement running
-'   NOTE: This method is intended for use when MeasureMode is set to MMODE_STEP
+'   NOTE: This method is intended for use when MeasureMode is set to SINGLE
     readReg (core#CONFIG, 2, 0, @result)
     result := ((result >> core#FLD_MEASURING) & %1) * TRUE
 
-PUB OperationMode(mode) | tmp
-' Set operation mode
+PUB OpMode(mode) | tmp
+' Set measurement mode
 '   Valid values:
-'      *OPMODE_NORM (0) - Normal
-'       OPMODE_SLEEP (1) - Sleep mode
+'     *CONT (0) - Continuous measurement mode
+'      SINGLE (1) - Single-measurement mode only
 '   Any other value polls the chip and returns the current setting
+'   NOTE: In SINGLE mode, measurements must be triggered manually using the Measure method
     readReg (core#CONFIG, 2, 0, @tmp)
     case mode
-        OPMODE_NORM, OPMODE_SLEEP:
-            mode := (mode << core#FLD_OPMODE)
+        CONT, SINGLE:
+            mode := (mode << core#FLD_MEASMODE)
         OTHER:
-            return (tmp >> core#FLD_OPMODE) & %1
-    tmp &= core#MASK_OPMODE
+            return (tmp >> core#FLD_MEASMODE) & %1
+    tmp &= core#MASK_MEASMODE
     tmp := (tmp | mode) & core#CONFIG_MASK
     writeReg (core#CONFIG, tmp)
 
@@ -307,6 +297,23 @@ PUB OSCTrim(val) | tmp
 
     tmp := val & core#OSC_TRIM_MASK
     writeReg (core#OSC_TRIM, tmp)
+
+PUB Powered(enabled) | tmp
+' Power on sensor
+'   Valid values:
+'      *FALSE (0) - Sleep
+'       TRUE (-1 or 1) - Powered on/normal operation
+'   Any other value polls the chip and returns the current setting
+    readReg (core#CONFIG, 2, 0, @tmp)
+    case ||enabled
+        0, 1:
+            enabled := ( not(||enabled) ) << core#FLD_OPMODE        ' Logic on the chip is reversed
+        OTHER:
+            return not( (tmp >> core#FLD_OPMODE) & %1 )
+
+    tmp &= core#MASK_OPMODE
+    tmp := (tmp | enabled) & core#CONFIG_MASK
+    writeReg (core#CONFIG, tmp)
 
 PUB PTAT | PTAT_data, Kt1, Kt2, Vth, Ta
 ' Read Proportional To Ambient Temperature sensor
