@@ -6,18 +6,18 @@
      16x4 IR array (P2 version)
     Copyright (c) 2020
     Started: Dec 2, 2019
-    Updated: Mar 7, 2020
+    Updated: Jun 13, 2020
     See end of file for terms of use.
     --------------------------------------------
 }
 
 CON
 
-    SLAVE_WR        = core#SLAVE_ADDR
-    SLAVE_RD        = core#SLAVE_ADDR|1
+    SLAVE_WR        = core.SLAVE_ADDR
+    SLAVE_RD        = core.SLAVE_ADDR|1
 
     DEF_HZ          = 100_000
-    I2C_MAX_FREQ    = core#I2C_MAX_FREQ
+    I2C_MAX_FREQ    = core.I2C_MAX_FREQ
 
     EE_SIZE         = 256
 
@@ -80,10 +80,10 @@ PUB Null
 PUB Start(SCL_PIN, SDA_PIN, I2C_HZ=100_000): okay
 
     if lookdown(SCL_PIN: 0..63) and lookdown(SDA_PIN: 0..63)
-        if I2C_HZ =< core#I2C_MAX_FREQ
+        if I2C_HZ =< core.I2C_MAX_FREQ
             if okay := i2c.Setup (SCL_PIN, SDA_PIN, I2C_HZ)             ' Start the I2C driver
                 time.MSleep (3)
-                if i2c.Present (core#EE_SLAVE_ADDR)
+                if i2c.Present (core.EE_SLAVE_ADDR)
                     ReadEEPROM                                          '   ...to read the EEPROM.
                     time.MSleep (5)
                     i2c.Setup (SCL_PIN, SDA_PIN, I2C_HZ)                ' This time re-setup for the sensor
@@ -117,15 +117,15 @@ PUB ADCReference(mode=-2) | tmp
 '     *ADCREF_LO (1) - ADC Low reference enabled
 '   Any other value polls the chip and returns the current setting
 ' NOTE: Re-calibration must be done after this method is called
-    readReg (core#CONFIG, 2, 0, @tmp)
+    readReg (core.CONFIG, 2, 0, @tmp)
     case mode
         ADCREF_HI, ADCREF_LO:
-            mode := mode << core#FLD_ADCHIGHREF
+            mode := mode << core.FLD_ADCHIGHREF
         OTHER:
-            return (tmp >> core#FLD_ADCHIGHREF) & %1
-    tmp &= core#MASK_ADCHIGHREF
-    tmp := (tmp | mode) & core#CONFIG_MASK
-    writeReg (core#CONFIG, tmp)
+            return (tmp >> core.FLD_ADCHIGHREF) & %1
+    tmp &= core.MASK_ADCHIGHREF
+    tmp := (tmp | mode) & core.CONFIG_MASK
+    writeReg (core.CONFIG, tmp)
 
 'TODO: Call Re-cal method here
 
@@ -133,16 +133,16 @@ PUB ADCRes(bits=-2) | tmp
 ' Set ADC resolution, in bits
 '   Valid values: 15..18 (default: 18)
 '   Any other value polls the chip and returns the current setting
-    readReg (core#CONFIG, 2, 0, @tmp)
+    readReg (core.CONFIG, 2, 0, @tmp)
     case bits
         15..18:
-            bits := lookdownz(bits: 15, 16, 17, 18) << core#FLD_ADCRES
+            bits := lookdownz(bits: 15, 16, 17, 18) << core.FLD_ADCRES
         OTHER:
-            result := (tmp >> core#FLD_ADCRES) & core#BITS_ADCRES
+            result := (tmp >> core.FLD_ADCRES) & core.BITS_ADCRES
             return result := lookupz(result: 15, 16, 17, 18)
-    tmp &= core#MASK_ADCRES
-    tmp := (tmp | bits) & core#CONFIG_MASK
-    writeReg (core#CONFIG, tmp)
+    tmp &= core.MASK_ADCRES
+    tmp := (tmp | bits) & core.CONFIG_MASK
+    writeReg (core.CONFIG, tmp)
 
 '    _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
@@ -159,15 +159,15 @@ PUB EEPROM(enabled) | tmp
 '   Any other value polls the chip and returns the current setting
 '   NOTE: Use with care! Driver will fail to restart if EEPROM is disabled.
 '       Cycle power in this case.
-    readReg (core#CONFIG, 2, 0, @tmp)
-    case ||enabled
+    readReg (core.CONFIG, 2, 0, @tmp)
+    case abs(enabled)
         0, 1:
-            enabled := (1-(||enabled)) << core#FLD_EEPROMENA
+            enabled := (1-(abs(enabled))) << core.FLD_EEPROMENA
         OTHER:
-            return (1-((tmp >> core#FLD_EEPROMENA) & %1)) * TRUE
-    tmp &= core#MASK_EEPROMENA
-    tmp := (tmp | enabled) & core#CONFIG_MASK
-    writeReg (core#CONFIG, tmp)
+            return (1-((tmp >> core.FLD_EEPROMENA) & %1)) * TRUE
+    tmp &= core.MASK_EEPROMENA
+    tmp := (tmp | enabled) & core.CONFIG_MASK
+    writeReg (core.CONFIG, tmp)
 
 PUB GetColumn(buff_addr, col) | rawpix[2], line, offset
 ' Read a single column of pixels from the sensor into buff_addr
@@ -235,20 +235,20 @@ PUB I2CFM(enabled=-2) | tmp
 '       e.g., you may have started the driver at 400kHz, but left this option at the default 1000kHz.
 '       Thus, the sensor will _allow_ traffic at up to 1000kHz, but the driver will only actually be operating at 400kHz.
 '   Any other value polls the chip and returns the current setting
-    readReg (core#CONFIG, 2, 0, @tmp)
-    case ||enabled
+    readReg (core.CONFIG, 2, 0, @tmp)
+    case abs(enabled)
         0, 1:
-            enabled := (1-(||enabled)) << core#FLD_I2CFMP
+            enabled := (1-(abs(enabled))) << core.FLD_I2CFMP
         OTHER:
-            return (1-((tmp >> core#FLD_I2CFMP) & %1)) * TRUE
-    tmp &= core#MASK_I2CFMP
-    tmp := (tmp | enabled) & core#CONFIG_MASK
-    writeReg (core#CONFIG, tmp)
+            return (1-((tmp >> core.FLD_I2CFMP) & %1)) * TRUE
+    tmp &= core.MASK_I2CFMP
+    tmp := (tmp | enabled) & core.CONFIG_MASK
+    writeReg (core.CONFIG, tmp)
 
 PUB Measure
 ' Perform measurement, when OpMode is set to SINGLE
 '   NOTE: This method waits/blocks while a measurement is ongoing
-    writeReg(core#CMD_STEP_MEASURE, 0)
+    writeReg(core.CMD_STEP_MEASURE, 0)
     repeat while Measuring
 
 PUB Measuring
@@ -257,8 +257,8 @@ PUB Measuring
 '       FALSE (0): No IR measurement running
 '       TRUE (-1): IR measurement running
 '   NOTE: This method is intended for use when MeasureMode is set to SINGLE
-    readReg (core#CONFIG, 2, 0, @result)
-    result := ((result >> core#FLD_MEASURING) & %1) * TRUE
+    readReg (core.CONFIG, 2, 0, @result)
+    result := ((result >> core.FLD_MEASURING) & %1) * TRUE
 
 PUB OpMode(mode=-2) | tmp
 ' Set measurement mode
@@ -267,29 +267,29 @@ PUB OpMode(mode=-2) | tmp
 '      SINGLE (1) - Single-measurement mode only
 '   Any other value polls the chip and returns the current setting
 '   NOTE: In SINGLE mode, measurements must be triggered manually using the Measure method
-    readReg (core#CONFIG, 2, 0, @tmp)
+    readReg (core.CONFIG, 2, 0, @tmp)
     case mode
         CONT, SINGLE:
-            mode := (mode << core#FLD_MEASMODE)
+            mode := (mode << core.FLD_MEASMODE)
         OTHER:
-            return (tmp >> core#FLD_MEASMODE) & %1
-    tmp &= core#MASK_MEASMODE
-    tmp := (tmp | mode) & core#CONFIG_MASK
-    writeReg (core#CONFIG, tmp)
+            return (tmp >> core.FLD_MEASMODE) & %1
+    tmp &= core.MASK_MEASMODE
+    tmp := (tmp | mode) & core.CONFIG_MASK
+    writeReg (core.CONFIG, tmp)
 
 PUB OSCTrim(val=-2) | tmp
 ' Set Oscillator Trim value
 '   Valid values: 0..127 (default: 0)
 '   Any other value polls the chip and returns the current setting
 '   NOTE: It is recommended to use the factory set value contained in the device's EEPROM.
-    readReg (core#OSC_TRIM, 1, 0, @tmp)
+    readReg (core.OSC_TRIM, 1, 0, @tmp)
     case val
         0..127:
         OTHER:
-            return tmp & core#OSC_TRIM_MASK
+            return tmp & core.OSC_TRIM_MASK
 
-    tmp := val & core#OSC_TRIM_MASK
-    writeReg (core#OSC_TRIM, tmp)
+    tmp := val & core.OSC_TRIM_MASK
+    writeReg (core.OSC_TRIM, tmp)
 
 PUB Powered(enabled=-2) | tmp
 ' Power on sensor
@@ -297,20 +297,20 @@ PUB Powered(enabled=-2) | tmp
 '      *FALSE (0) - Sleep
 '       TRUE (-1 or 1) - Powered on/normal operation
 '   Any other value polls the chip and returns the current setting
-    readReg (core#CONFIG, 2, 0, @tmp)
-    case ||enabled
+    readReg (core.CONFIG, 2, 0, @tmp)
+    case abs(enabled)
         0, 1:
-            enabled := ( not(||enabled) ) << core#FLD_OPMODE        ' Logic on the chip is reversed
+            enabled := (not(abs(enabled))) << core.FLD_OPMODE        ' Logic on the chip is reversed
         OTHER:
-            return not( (tmp >> core#FLD_OPMODE) & %1 )
+            return not( (tmp >> core.FLD_OPMODE) & %1 )
 
-    tmp &= core#MASK_OPMODE
-    tmp := (tmp | enabled) & core#CONFIG_MASK
-    writeReg (core#CONFIG, tmp)
+    tmp &= core.MASK_OPMODE
+    tmp := (tmp | enabled) & core.CONFIG_MASK
+    writeReg (core.CONFIG, tmp)
 
 PUB PTAT | PTAT_data, Kt1, Kt2, Vth, Ta
 ' Read Proportional To Ambient Temperature sensor
-    readReg(core#PTAT, 1, 0, @PTAT_data)
+    readReg(core.PTAT, 1, 0, @PTAT_data)
 {    Kt1 := (_ee_data[$DD] << 8) | _ee_data[$DC]
     Kt2 := (_ee_data[$DF] << 8) | _ee_data[$DE]
     Vth := (_ee_data[$DB] << 8) | _ee_data[$DA]
@@ -327,11 +327,11 @@ PUB ReadEEPROM | tmp
     bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
 
     i2c.Start                           'Start reading at addr $00
-    i2c.Write (core#EE_SLAVE_ADDR)
+    i2c.Write (core.EE_SLAVE_ADDR)
     i2c.Write ($00)
 
     i2c.Start                           'Read in the EEPROM
-    i2c.Write (core#EE_SLAVE_ADDR|1)
+    i2c.Write (core.EE_SLAVE_ADDR|1)
     repeat tmp from 0 to EE_SIZE-1
         _ee_data[tmp] := i2c.Read (tmp == EE_SIZE-1)
     i2c.Stop
@@ -341,17 +341,17 @@ PUB RefreshRate(Hz=-2) | tmp
 '   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2 (default: 1)
 '   Any other value polls the chip and returns the current setting
 '   NOTE: Higher rates will yield noisier images
-    readReg (core#CONFIG, 2, 0, @tmp)
+    readReg (core.CONFIG, 2, 0, @tmp)
     case Hz
         512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0:
             Hz := lookdownz(Hz: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
         OTHER:
-            result := tmp & core#BITS_REFRATE
+            result := tmp & core.BITS_REFRATE
             return lookupz(result: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
 
-    tmp &= core#MASK_REFRATE
-    tmp := (tmp | Hz) & core#CONFIG_MASK
-    writeReg (core#CONFIG, tmp)
+    tmp &= core.MASK_REFRATE
+    tmp := (tmp | Hz) & core.CONFIG_MASK
+    writeReg (core.CONFIG, tmp)
 
 PUB Reset(set=-2) | tmp
 ' Set sensor reset flag
@@ -359,76 +359,76 @@ PUB Reset(set=-2) | tmp
 '   Any other value polls the chip and returns the current setting
 '   NOTE: This must be done any time the sensor is initialized, _after_ the configuration register has been updated
 '       If FALSE is returned, POR or brown-out has occurred and the process must be repeated
-    readReg (core#CONFIG, 2, 0, @tmp)
-    case ||set
+    readReg (core.CONFIG, 2, 0, @tmp)
+    case abs(set)
         1:
-            set := 1 << core#FLD_RESET
+            set := 1 << core.FLD_RESET
         OTHER:
-            return ((tmp >> core#FLD_RESET) & %1) * TRUE
-    tmp &= core#MASK_RESET
-    tmp := (tmp | set) & core#CONFIG_MASK
-    writeReg (core#CONFIG, tmp)
+            return ((tmp >> core.FLD_RESET) & %1) * TRUE
+    tmp &= core.MASK_RESET
+    tmp := (tmp | set) & core.CONFIG_MASK
+    writeReg (core.CONFIG, tmp)
 
-PRI readReg(reg, nr_reads, rd_step, buff_addr) | cmd_packet[2], tmp
+PRI readReg(reg_nr, nr_reads, rd_step, buff_addr): result | cmd_packet[2], tmp
 
     cmd_packet.byte[0] := SLAVE_WR
-    cmd_packet.byte[1] := core#CMD_READREG
-    case reg
+    cmd_packet.byte[1] := core.CMD_READREG
+    case reg_nr
         $00..$41:                           'RAM
-            cmd_packet.byte[2] := reg
+            cmd_packet.byte[2] := reg_nr
             cmd_packet.byte[3] := rd_step
             cmd_packet.byte[4] := nr_reads
             nr_reads <<= 1
         $92..$93:                           'Configuration regs
-            cmd_packet.byte[2] := reg
+            cmd_packet.byte[2] := reg_nr
             cmd_packet.byte[3] := 0         'Address step
             cmd_packet.byte[4] := 1         'Number of reads sent as command parameter to device
             nr_reads := 2
         OTHER:
             return
 
-    i2c.Start
+    i2c.Start()
     repeat tmp from 0 to 4
         i2c.Write(cmd_packet.byte[tmp])
 
-    i2c.Start
+    i2c.Start()
     i2c.Write (SLAVE_RD)
     repeat tmp from 0 to nr_reads-1
         byte[buff_addr][tmp] := i2c.Read(tmp == nr_reads-1)
-    i2c.Stop
+    i2c.Stop()
 
-PRI writeReg(reg, val) | cmd_packet[2], nr_bytes, tmp
+PRI writeReg(reg_nr, val): result | cmd_packet[2], nr_bytes, tmp
 
     cmd_packet.byte[0] := SLAVE_WR
-    case reg
-        core#CONFIG:
-            cmd_packet.byte[1] := core#CMD_WRITEREG_CFG
+    case reg_nr
+        core.CONFIG:
+            cmd_packet.byte[1] := core.CMD_WRITEREG_CFG
             cmd_packet.byte[2] := val.byte[0] - CFG_CKBYTE
             cmd_packet.byte[3] := val.byte[0]
             cmd_packet.byte[4] := val.byte[1] - CFG_CKBYTE
             cmd_packet.byte[5] := val.byte[1]
             nr_bytes := 6
 
-        core#OSC_TRIM:
-            cmd_packet.byte[1] := core#CMD_WRITEREG_OSCTRIM
+        core.OSC_TRIM:
+            cmd_packet.byte[1] := core.CMD_WRITEREG_OSCTRIM
             cmd_packet.byte[2] := val.byte[0] - OSC_CKBYTE
             cmd_packet.byte[3] := val.byte[0]
             cmd_packet.byte[4] := val.byte[1] - OSC_CKBYTE
             cmd_packet.byte[5] := val.byte[1]
             nr_bytes := 6
 
-        core#CMD_STEP_MEASURE:
-            cmd_packet.byte[1] := core#CMD_STEP_MEASURE & $FF
-            cmd_packet.byte[2] := (core#CMD_STEP_MEASURE >> 8) & $FF
+        core.CMD_STEP_MEASURE:
+            cmd_packet.byte[1] := core.CMD_STEP_MEASURE & $FF
+            cmd_packet.byte[2] := (core.CMD_STEP_MEASURE >> 8) & $FF
             nr_bytes := 3
 
         OTHER:
             return
 
-    i2c.Start
+    i2c.Start()
     repeat tmp from 0 to nr_bytes-1
         i2c.Write(cmd_packet.byte[tmp])
-    i2c.Stop
+    i2c.Stop()
 
 PRI u16s16(unsigned16): signed16
 ' Convert unsigned word to signed word

@@ -6,39 +6,33 @@
         an SSD1331 OLED as a display (P2 version)
     Copyright (c) 2020
     Started: Dec 2, 2019
-    Updated: Mar 7, 2020
+    Updated: Jun 13, 2020
     See end of file for terms of use.
     --------------------------------------------
 }
 
 CON
 
-    XTAL        = cfg#XTAL
-    XDIV        = cfg#XDIV
-    XMUL        = cfg#XMUL
-    XDIVP       = cfg#XDIVP
-    XOSC        = cfg#XOSC
-    XSEL        = cfg#XSEL
-    XPPPP       = cfg#XPPPP
-    CLOCKFREQ   = cfg#CLOCKFREQ
-    SETFREQ     = cfg#SETFREQ
-    ENAFREQ     = cfg#ENAFREQ
+    _xtlfreq    = cfg._xtlfreq
+    _clkfreq    = cfg._clkfreq_def
 
-    LED         = cfg#LED1
-    SER_RX      = cfg#SER_RX
-    SER_TX      = cfg#SER_TX
+' -- User-modifiable constants
+    LED         = cfg.LED1
+    SER_RX      = cfg.SER_RX
+    SER_TX      = cfg.SER_TX
     SER_BAUD    = 2_000_000
 
-' OLED-96 I/O Pin assignments
     RES_PIN     = 36
     DC_PIN      = 35
     CS_PIN      = 34
     CLK_PIN     = 33
     DIN_PIN     = 32
+    SCK_HZ      = 20_000_000
 
     I2C_SCL     = 28
     I2C_SDA     = 27
     I2C_HZ      = 1_000_000
+' --
 
     BUFFSZ      = 96*64
     XMAX        = 95
@@ -72,11 +66,11 @@ VAR
     byte _sx, _sy, _width, _height
     byte _ser_cog
 
-PUB Main | x, y
+PUB Main() | x, y
 
-    Setup
+    Setup()
 
-    SetColorScale
+    SetColorScale()
     wordfill(@_ir_frame, 0, 64)
 
     _sx := 0           ' Starting position of thermal image
@@ -84,17 +78,17 @@ PUB Main | x, y
     _width := 5        ' Size of each pixel
     _height := 5
 
-    DrawScale
+    DrawScale()
 
     repeat
         mlx.GetFrame (@_ir_frame)
-        DrawFrame
+        DrawFrame()
 
-PUB Constrain(val, lower, upper)
+PUB Constrain(val, lower, upper): result
 
-    return lower #> val <# upper
+    result := lower #> val <# upper
 
-PUB DrawFrame | x, y, color_c, k, ex, ey
+PUB DrawFrame() | x, y, color_c, k, ex, ey
 ' Draw the thermal image
     ex := _sx + _width
     ey := _sy + _height
@@ -108,7 +102,7 @@ PUB DrawFrame | x, y, color_c, k, ex, ey
 
     oled.Update
 
-PUB DrawScale | i
+PUB DrawScale() | i
 ' Draw Color Scale
 '  65535 max range from thermal sensor
 '  95 max horizontal pixel range of OLED display
@@ -118,9 +112,9 @@ PUB DrawScale | i
 
 ' Draw box surrounding thermal image
 '    oled.box(_sx-2, _sy-2, (_width*20) + sx+1, (_height*5) + sy+1, $FFFF)
-    oled.Update
+    oled.Update()
 
-PUB GetColor(val) | red, green, blue, inmax, outmax, divisor
+PUB GetColor(val): result | red, green, blue, inmax, outmax, divisor
 ' Get color of input value based on 4-point scale
 '   XXX broken
     longfill(@red, $00, 6)  ' initialize all of the variables to 0
@@ -147,19 +141,19 @@ PUB GetColor(val) | red, green, blue, inmax, outmax, divisor
             blue := 0
         OTHER:
 ' RGB888 format
-'    return (red << 16) | (green << 8) | blue
+'    result := (red <# 16) | (green <# 8) | blue
 
 ' RGB565 format
-    return ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
+    result := ((red#> 3) <# 11) | ((green#> 2) <# 5) | (blue#> 3)
 
-PUB keydaemon | cmd
+PUB keydaemon() | cmd
 
     repeat
-        repeat until cmd := ser.CharIn
+        repeat until cmd := ser.CharIn()
         case cmd
             "-":
                 _offset := 0 #> (_offset - 1000)
-                if _offset < 0
+                if _offset <#0
                     _offset := 0
                 ser.Position(0, 11)
                 ser.printf("Offset: %d\n", _offset)
@@ -170,33 +164,33 @@ PUB keydaemon | cmd
             "e":
                 HexDump(@_ee_img)
             "t":
-                DumpFrame
+                DumpFrame()
             OTHER:
 
 PUB HexDump(ptr) | seg, off
 
     ser.Position(0, 14)
     mlx.dump_ee (ptr)
-    repeat seg from 0 to mlx#EE_SIZE-8 step 8
+    repeat seg from 0 to mlx.EE_SIZE-8 step 8
         ser.Hex (seg, 2)
         ser.printf(": ")
         repeat off from 0 to 7
             ser.Hex (byte[ptr][seg+off], 2)
             ser.Char (" ")
-        ser.NewLine
+        ser.NewLine()
 
-PUB DumpConfig
+PUB DumpConfig()
 
-    ser.printf("Refresh rate: %d\n", mlx.RefreshRate)
-    ser.printf("ADC Res: %d bits\n", mlx.ADCRes)
-    ser.printf("Reset bit: %d\n", mlx.Reset)
-    ser.printf("ADC Reference: %d\n", mlx.ADCReference)
-    ser.printf("OpMode: %d\n", mlx.OpMode)
-    ser.printf("Sensor powered: %d\n", mlx.Powered)
-    ser.printf("I2C Fast Mode+: %d\n", mlx.I2CFM)
-    ser.printf("Oscillator Trim val: $%x\n", mlx.OSCTrim)
+    ser.printf("Refresh rate: %d\n", mlx.RefreshRate())
+    ser.printf("ADC Res: %d bits\n", mlx.ADCRes())
+    ser.printf("Reset bit: %d\n", mlx.Reset())
+    ser.printf("ADC Reference: %d\n", mlx.ADCReference())
+    ser.printf("OpMode: %d\n", mlx.OpMode())
+    ser.printf("Sensor powered: %d\n", mlx.Powered())
+    ser.printf("I2C Fast Mode+: %d\n", mlx.I2CFM())
+    ser.printf("Oscillator Trim val: $%x\n", mlx.OSCTrim())
 
-PUB DumpFrame | line, col, k
+PUB DumpFrame() | line, col, k
 
     repeat line from 0 to 3
         repeat col from 0 to 15
@@ -205,7 +199,7 @@ PUB DumpFrame | line, col, k
             ser.Hex (_ir_frame.word[k], 4)
             ser.Char (" ")
 
-PUB SetColorScale
+PUB SetColorScale()
 
     _a_min := 0
     _a_max := 16383
@@ -223,48 +217,34 @@ PUB SetColorScale
     _d_max := 65535
     _d_range := _d_max - _d_min
 
-PUB Setup
+PUB Setup()
 
-    clkset(ENAFREQ, CLOCKFREQ, XSEL)
     repeat until _ser_cog := ser.StartRXTX (SER_RX, SER_TX, 0, SER_BAUD)
-    ser.Clear
+    ser.Clear()
     ser.printf("Serial terminal started\n")
 
-    if oled.Start (CS_PIN, DC_PIN, DIN_PIN, CLK_PIN, RES_PIN)
+    if oled.Start (CS_PIN, DC_PIN, DIN_PIN, CLK_PIN, RES_PIN, SCK_HZ, @_frame_buff)
         ser.printf("SSD1331 driver started\n")
-        oled.Defaults
-        oled.Address(@_frame_buff)
-        oled.ClockDiv(1)
-        oled.ClockFreq(956)
-        oled.AddrIncMode (oled#ADDR_HORIZ)
-        oled.MirrorH (FALSE)
-        oled.SubpixelOrder (oled#SUBPIX_RGB)
-        oled.VertAltScan (FALSE)
-        oled.MirrorV (FALSE)
-        oled.Interlaced (FALSE)
-        oled.ColorDepth (oled#COLOR_65K)
-        oled.ClearAll
-        oled.Fill(TRUE)
-        oled.Contrast (127)
+        oled.DefaultsCommon()
     else
         ser.printf("SSD1331 driver failed to start - halting\n")
         time.MSleep (5)
-        oled.stop
-        mlx.Stop
+        oled.stop()
+        mlx.Stop()
         repeat
 
     if mlx.Start (I2C_SCL, I2C_SDA, I2C_HZ)
         ser.printf("MLX90621 driver started\n")
-        ser.NewLine
+        ser.NewLine()
     else
         ser.printf("MLX90621 driver failed to start - halting\n")
         time.MSleep (5)
-        oled.stop
-        mlx.Stop
+        oled.stop()
+        mlx.Stop()
         repeat
 
-    mlx.Defaults
-    mlx.OpMode(mlx#CONT)
+    mlx.Defaults()
+    mlx.OpMode(mlx.CONT)
     mlx.ADCRes (18)
     mlx.RefreshRate (32)
 
