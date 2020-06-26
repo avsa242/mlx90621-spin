@@ -72,7 +72,6 @@ OBJ
 
 VAR
 
-    word _raw_frame[64]
     word _ptat
 
     byte _ee_data[EE_SIZE]
@@ -189,39 +188,43 @@ PUB EEPROM(enabled): ee_state | tmp
     tmp := (tmp | enabled) & core.CONFIG_MASK
     writeReg (core.CONFIG, tmp)
 
-PUB GetColumn(buff_addr, col) | rawpix[2], line, offset
+PUB GetColumn(buff_addr, col) | tmpframe[2], offs, line
 ' Read a single column of pixels from the sensor into buff_addr
 '   NOTE This buffer must be at least 4 words
     if not lookdown(col: 0..15)
         return
 
-    readReg (col * 4, 4, 1, @rawpix)
+    readReg (col * 4, 4, 1, @tmpframe)
     repeat line from 0 to YMAX
-        offset := (col * 4) + line
-        word[buff_addr][offset] := rawpix.word[line] signx 15
+        offs := (col * 4) + line
+        long[buff_addr][tmp] := tmpframe.word[offs] signx 15
 
-PUB GetFrame(buff_addr)
+PUB GetFrame(buff_addr) | tmpframe[64], offs
 ' Read entire frame from sensor and store it in buffer at buff_addr
 '   NOTE: This buffer must be at least 64 words
-    readReg (0, 64, 1, buff_addr)
+    readReg (0, 64, 1, @tmpframe)
+    repeat offs from 0 to 63
+        long[buff_addr][offs] := tmpframe.word[offs] signx 15
 
-PUB GetFrameExt(buff_addr) | line, col, rawpix[33], offset
+PUB GetFrameExt(buff_addr) | tmpframe[66], offs, line, col
 ' Read entire frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at buff_addr
 '   NOTE: This buffer must be at least 66 words
-    readReg (0, 66, 1, buff_addr)
-    _PTAT := word[buff_addr][RAM_OFFS_PTAT]                ' Get PTAT data
+    readReg (0, 66, 1, @tmpframe)
+    repeat offs from 0 to 65
+        long[buff_addr][offs] := tmpframe.word[offs] signx 15
+    _PTAT := tmpframe[RAM_OFFS_PTAT]                        ' Get PTAT data
 
-PUB GetLine(buff_addr, line) | rawpix[8], col, offset
+PUB GetLine(buff_addr, line) | tmpframe[8], offs, col
 ' Read a single line of pixels from the sensor into buff_addr
 '   NOTE: This buffer must be at least 16 words
     if not lookdown(line: 0..3)
         return
-    readReg (line, 16, 4, @rawpix)
+    readReg (line, 16, 4, @tmpframe)
     repeat col from 0 to XMAX
-        offset := (col * 4) + line
-        word[buff_addr][offset] := rawpix.word[col] signx 15
+        offs := (col * 4) + line
+        long[buff_addr][offs] := tmpframe.word[offs] signx 15
 
-PUB GetPixel(buff_addr, col, line): pix_word | rawpix, offset
+PUB GetPixel(buff_addr, col, line): pix_word | tmpframe, offs
 ' Read a single pixel from the sensor into buff_addr
 '   Returns: pixel value
 '   NOTE: This buffer must be at least 1 word
@@ -235,10 +238,10 @@ PUB GetPixel(buff_addr, col, line): pix_word | rawpix, offset
         OTHER:
             return
 
-    offset := (col * 4) + line 'Compute offset location in array of current pixel
+    offs := (col * 4) + line                                ' Calc offset within array image
 
-    readReg (offset, 1, 0, @rawpix)
-    return word[buff_addr][offset] := rawpix.word[0] signx 15
+    readReg (offs, 1, 0, @tmpframe)
+    long[buff_addr][offs] := pix_word := tmpframe.word[0] signx 15
 
 PUB I2CFM(enabled=-2): curr_mode | tmp
 ' Enable I2C Fast Mode+

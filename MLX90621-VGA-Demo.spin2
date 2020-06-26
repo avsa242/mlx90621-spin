@@ -61,30 +61,30 @@ VAR
 
     long _keyinput_stack[50]
     long _palette[256]
-
+    long _ir_frame[66]
     long _offset
     long _settings_changed
-
-    word _ir_frame[66], _framebuffer[BUFFSZ]
 
     word _mlx_refrate
 
     word _fx, _fy, _fw, _fh
 
+    byte _framebuffer[BUFFSZ]
     byte _mlx_adcres, _mlx_adcref
     byte _invert_x, _col_scl
     byte _hotspot_mark
 
 PUB Main()
 
-    vga.settimings(10, 33, 16, 89, 85, 640)
+'    vga.settimings(10, 33, 16, 89, 85, 640)
+    vga.SetTimings(26, 32, 16, 96, 48, 640)
     setup()
     drawvscale(XMAX-5, 0, YMAX)
 
     repeat
         if _settings_changed
             updatesettings()
-        mlx.getframeext (@_ir_frame)
+        mlx.getframe (@_ir_frame)
         drawframe(_fx, _fy, _fw, _fh)
 
 PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixex, pixey, maxx, maxy, maxp
@@ -97,14 +97,16 @@ PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixe
             else
                 ir_offset := (x * 4) + y
 
-            color_c := (_ir_frame.word[ir_offset] * _col_scl) / 256 + _offset   ' Computed color
+            color_c := (_ir_frame[ir_offset] * _col_scl) / 256 + _offset   ' Computed color
             pixsx := fx + (x * pixw)
             pixsy := fy + (y * (pixh + 1))
             pixex := pixsx + pixw
             pixey := pixsy + pixh
 
-            if _ir_frame.word[ir_offset] > maxp             ' Check if this is the hottest spot
-                maxp := _ir_frame.word[ir_offset]
+            if _ir_frame[ir_offset] > maxp             ' Check if this is the hottest spot
+                maxp := _ir_frame[ir_offset]
+'                ser.position(0, 5)
+'                ser.printf("%x", maxp)
                 maxx := pixsx
                 maxy := pixsy
             vga.box(pixsx, pixsy, pixex, pixey, color_c, TRUE)
@@ -131,8 +133,8 @@ PUB DumpFrame() | x, y, ir_offset
                 ir_offset := ((mlx.XMAX-x) * 4) + y
             else
                 ir_offset := (x * 4) + y
-            ser.position (1+(x * 5), 5+y)                   ' Accommodate spacing for hex words
-            ser.hex (_ir_frame.word[ir_offset], 4)
+            ser.position (1+(x * 9), 9+y)                   ' Accommodate spacing for hex words
+            ser.hex (_ir_frame[ir_offset], 8)
             ser.char (" ")
 
 PUB UpdateSettings() | col, row, reftmp
