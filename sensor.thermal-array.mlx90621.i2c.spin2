@@ -73,7 +73,7 @@ OBJ
 VAR
 
     word _raw_frame[64]
-    word _PTAT
+    word _ptat
 
     byte _ee_data[EE_SIZE]
 
@@ -84,7 +84,7 @@ PUB Start(SCL_PIN, SDA_PIN, I2C_HZ=100_000): okay
 
     if lookdown(SCL_PIN: 0..63) and lookdown(SDA_PIN: 0..63)
         if I2C_HZ <= core.I2C_MAX_FREQ
-            if okay := i2c.Setup (SCL_PIN, SDA_PIN, I2C_HZ)             ' start the I2C driver
+            if okay := i2c.setup (SCL_PIN, SDA_PIN, I2C_HZ)             ' start the I2C driver
                 waitms (3)
                 if i2c.present (core.EE_SLAVE_ADDR)
                     readeeprom()                                        '   ...to read the EEPROM.
@@ -96,11 +96,11 @@ PUB Start(SCL_PIN, SDA_PIN, I2C_HZ=100_000): okay
 
     return FALSE                                                        'If we got here, something went wrong
 
-PUB Stop
+PUB Stop()
 
     '
 
-PUB Defaults
+PUB Defaults()
 
     osctrim (_ee_data[EE_OFFS_OSCTRIM]) ' Write osc trimming val extracted from EEPROM address $F7
     refreshrate (1)
@@ -113,7 +113,7 @@ PUB Defaults
     reset (TRUE)
     waitms (5)
 
-PUB ADCReference(mode=-2) | tmp
+PUB ADCReference(mode=-2): curr_ref | tmp
 ' Set ADC reference high, low
 '   Valid values:
 '      ADCREF_HI (0) - ADC High reference enabled
@@ -126,13 +126,14 @@ PUB ADCReference(mode=-2) | tmp
             mode := mode << core.FLD_ADCHIGHREF
         OTHER:
             return (tmp >> core.FLD_ADCHIGHREF) & %1
+
     tmp &= core.MASK_ADCHIGHREF
     tmp := (tmp | mode) & core.CONFIG_MASK
     writeReg (core.CONFIG, tmp)
 
 'TODO: Call Re-cal method here
 
-PUB ADCRes(bits=-2) | tmp
+PUB ADCRes(bits=-2): curr_res | tmp
 ' Set ADC resolution, in bits
 '   Valid values: 15..18 (default: 18)
 '   Any other value polls the chip and returns the current setting
@@ -141,20 +142,35 @@ PUB ADCRes(bits=-2) | tmp
         15..18:
             bits := lookdownz(bits: 15, 16, 17, 18) << core.FLD_ADCRES
         OTHER:
-            result := (tmp >> core.FLD_ADCRES) & core.BITS_ADCRES
-            return result := lookupz(result: 15, 16, 17, 18)
+            curr_res := (tmp >> core.FLD_ADCRES) & core.BITS_ADCRES
+            return lookupz(result: 15, 16, 17, 18)
+
     tmp &= core.MASK_ADCRES
     tmp := (tmp | bits) & core.CONFIG_MASK
     writeReg (core.CONFIG, tmp)
 
 '    _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
 
+PUB AmbientTemp(): ptat | Kt1, Kt2, Vth, Ta
+' Read Proportional To Ambient Temperature sensor
+    readReg(core.PTAT, 1, 0, @ptat)
+{    Kt1 := (_ee_data[$DD] << 8) | _ee_data[$DC]
+    Kt2 := (_ee_data[$DF] << 8) | _ee_data[$DE]
+    Vth := (_ee_data[$DB] << 8) | _ee_data[$DA]
+    Ta := Kt1 * Kt1
+    Ta := Ta - (4 * Kt2)
+    Ta := Ta * (Vth - PTAT_data)
+    Ta := ^^Ta
+    Ta := Ta + (-Kt1)
+    Ta := Ta / (Kt2 * 2)}
+    return
+
 PUB Dump_EE(buff_addr)
 ' Copy downloaded EEPROM image to buff_addr
 ' NOTE: This buffer must be at least 256 bytes
     bytemove(buff_addr, @_ee_data, EE_SIZE)
 
-PUB EEPROM(enabled) | tmp
+PUB EEPROM(enabled): ee_state | tmp
 ' Enable/disable the sensor's built-in EEPROM
 '   Valid values:
 '      TRUE (-1 or 1): Sensor's built-in EEPROM enabled (default)
@@ -168,6 +184,7 @@ PUB EEPROM(enabled) | tmp
             enabled := (1-(abs(enabled))) << core.FLD_EEPROMENA
         OTHER:
             return (1-((tmp >> core.FLD_EEPROMENA) & %1)) * TRUE
+
     tmp &= core.MASK_EEPROMENA
     tmp := (tmp | enabled) & core.CONFIG_MASK
     writeReg (core.CONFIG, tmp)
@@ -204,7 +221,7 @@ PUB GetLine(buff_addr, line) | rawpix[8], col, offset
         offset := (col * 4) + line
         word[buff_addr][offset] := rawpix.word[col] signx 15
 
-PUB GetPixel(buff_addr, col, line) | rawpix, offset
+PUB GetPixel(buff_addr, col, line): pix_word | rawpix, offset
 ' Read a single pixel from the sensor into buff_addr
 '   Returns: pixel value
 '   NOTE: This buffer must be at least 1 word
@@ -223,7 +240,7 @@ PUB GetPixel(buff_addr, col, line) | rawpix, offset
     readReg (offset, 1, 0, @rawpix)
     return word[buff_addr][offset] := rawpix.word[0] signx 15
 
-PUB I2CFM(enabled=-2) | tmp
+PUB I2CFM(enabled=-2): curr_mode | tmp
 ' Enable I2C Fast Mode+
 '   Valid values:
 '     *TRUE (-1 or 1): Max I2C bus speed 1000kbit/sec
@@ -238,17 +255,18 @@ PUB I2CFM(enabled=-2) | tmp
             enabled := (1-(abs(enabled))) << core.FLD_I2CFMP
         OTHER:
             return (1-((tmp >> core.FLD_I2CFMP) & %1)) * TRUE
+
     tmp &= core.MASK_I2CFMP
     tmp := (tmp | enabled) & core.CONFIG_MASK
     writeReg (core.CONFIG, tmp)
 
-PUB Measure
+PUB Measure()
 ' Perform measurement, when OpMode is set to SINGLE
 '   NOTE: This method waits/blocks while a measurement is ongoing
     writeReg(core.CMD_STEP_MEASURE, 0)
     repeat while Measuring
 
-PUB Measuring
+PUB Measuring(): state
 ' Flag indicating a measurement is running
 '   Returns:
 '       FALSE (0): No IR measurement running
@@ -257,7 +275,7 @@ PUB Measuring
     readReg (core.CONFIG, 2, 0, @result)
     result := ((result >> core.FLD_MEASURING) & %1) * TRUE
 
-PUB OpMode(mode=-2) | tmp
+PUB OpMode(mode=-2): curr_mode | tmp
 ' Set measurement mode
 '   Valid values:
 '     *CONTINUOUS (0) - Continuous measurement mode
@@ -270,11 +288,12 @@ PUB OpMode(mode=-2) | tmp
             mode := (mode << core.FLD_MEASMODE)
         OTHER:
             return (tmp >> core.FLD_MEASMODE) & %1
+
     tmp &= core.MASK_MEASMODE
     tmp := (tmp | mode) & core.CONFIG_MASK
     writeReg (core.CONFIG, tmp)
 
-PUB OSCTrim(val=-2) | tmp
+PUB OSCTrim(val=-2): curr_val | tmp
 ' Set Oscillator Trim value
 '   Valid values: 0..127 (default: 0)
 '   Any other value polls the chip and returns the current setting
@@ -288,7 +307,7 @@ PUB OSCTrim(val=-2) | tmp
     tmp := val & core.OSC_TRIM_MASK
     writeReg (core.OSC_TRIM, tmp)
 
-PUB Powered(enabled=-2) | tmp
+PUB Powered(enabled=-2): curr_state | tmp
 ' Power on sensor
 '   Valid values:
 '      *FALSE (0) - Sleep
@@ -305,21 +324,7 @@ PUB Powered(enabled=-2) | tmp
     tmp := (tmp | enabled) & core.CONFIG_MASK
     writeReg (core.CONFIG, tmp)
 
-PUB PTAT | PTAT_data, Kt1, Kt2, Vth, Ta
-' Read Proportional To Ambient Temperature sensor
-    readReg(core.PTAT, 1, 0, @PTAT_data)
-{    Kt1 := (_ee_data[$DD] << 8) | _ee_data[$DC]
-    Kt2 := (_ee_data[$DF] << 8) | _ee_data[$DE]
-    Vth := (_ee_data[$DB] << 8) | _ee_data[$DA]
-    Ta := Kt1 * Kt1
-    Ta := Ta - (4 * Kt2)
-    Ta := Ta * (Vth - PTAT_data)
-    Ta := ^^Ta
-    Ta := Ta + (-Kt1)
-    Ta := Ta / (Kt2 * 2)}
-    return PTAT_data
-
-PUB ReadEEPROM | tmp
+PUB ReadEEPROM() | tmp
 ' Read EEPROM contents into RAM
     bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
 
@@ -333,7 +338,7 @@ PUB ReadEEPROM | tmp
         _ee_data[tmp] := i2c.read (tmp == EE_SIZE-1)
     i2c.stop()
 
-PUB RefreshRate(Hz=-2) | tmp
+PUB RefreshRate(Hz=-2): curr_rate | tmp
 ' Set sensor refresh rate
 '   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2 (default: 1)
 '   Any other value polls the chip and returns the current setting
@@ -343,14 +348,14 @@ PUB RefreshRate(Hz=-2) | tmp
         512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0:
             Hz := lookdownz(Hz: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
         OTHER:
-            result := tmp & core.BITS_REFRATE
-            return lookupz(result: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
+            curr_rate := tmp & core.BITS_REFRATE
+            return lookupz(curr_rate: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
 
     tmp &= core.MASK_REFRATE
     tmp := (tmp | Hz) & core.CONFIG_MASK
     writeReg (core.CONFIG, tmp)
 
-PUB Reset(set=-2) | tmp
+PUB Reset(set=-2): flag | tmp
 ' Set sensor reset flag
 '   Valid values: TRUE (-1 or 1)
 '   Any other value polls the chip and returns the current setting
@@ -362,6 +367,7 @@ PUB Reset(set=-2) | tmp
             set := 1 << core.FLD_RESET
         OTHER:
             return ((tmp >> core.FLD_RESET) & %1) * TRUE
+
     tmp &= core.MASK_RESET
     tmp := (tmp | set) & core.CONFIG_MASK
     writeReg (core.CONFIG, tmp)
