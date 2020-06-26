@@ -73,6 +73,7 @@ VAR
 
     byte _mlx_adcres, _mlx_adcref
     byte _invert_x, _col_scl
+    byte _hotspot_mark
 
 PUB Main()
 
@@ -91,7 +92,7 @@ PUB Main()
         mlx.getframeext (@_ir_frame)
         drawframe(_fx, _fy, _fw, _fh)
 
-PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixex, pixey
+PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixex, pixey, maxx, maxy, maxp
 ' Draw the thermal image
     vga.waitvsync()
     repeat y from 0 to mlx.YMAX
@@ -100,12 +101,23 @@ PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixe
                 ir_offset := ((mlx.XMAX-x) * 4) + y
             else
                 ir_offset := (x * 4) + y
+
             color_c := (_ir_frame.word[ir_offset] * _col_scl) / 256 + _offset   ' Computed color
             pixsx := fx + (x * pixw)
             pixsy := fy + (y * (pixh + 1))
             pixex := pixsx + pixw
             pixey := pixsy + pixh
+
+            if _ir_frame.word[ir_offset] > maxp             ' Check if this is the hottest spot
+                maxp := _ir_frame.word[ir_offset]
+                maxx := pixsx
+                maxy := pixsy
             vga.box(pixsx, pixsy, pixex, pixey, color_c, TRUE)
+
+    if _hotspot_mark                                        ' Mark hotspot
+'        vga.box(maxx, maxy, maxx+pixw, maxy+pixh, 255, false)          ' White box
+        vga.line(maxx, maxy+(pixh/2), maxx+pixw, maxy+(pixh/2), 255)    '  - or cross-hair
+        vga.line(maxx+(pixw/2), maxy, maxx+(pixw/2), maxy+pixh, 255)    ' /
 
 PUB DrawVScale(x, y, ht) | idx, color, scl_width, bottom, top, range                                     ' Draw the color scale setup at program start
     range := bottom := y+ht
@@ -158,17 +170,24 @@ PUB cog_keyInput() | cmd
                 _mlx_adcres := (_mlx_adcres + 1) <# 18
             "a":
                 _mlx_adcres := (_mlx_adcres - 1) #> 15
-            "C":
+
+            "C":                                            ' Color scaling/contrast
                 _col_scl := (_col_scl + 1) <# 16
             "c":
                 _col_scl := (_col_scl - 1) #> 1
+
             "F":
                 _mlx_refrate := (_mlx_refrate * 2) <# 512   ' Sensor refresh rate (Hz)
             "f":
                 _mlx_refrate := (_mlx_refrate / 2) #> 1
-            "r":
-                _mlx_adcref ^= 1                            ' Sensor ADC reference (hi/low)
-            "S":
+
+            "h":                                            ' Mark hotspot
+                _hotspot_mark ^= 1
+
+            "r":                                            ' Sensor ADC reference (hi/low)
+                _mlx_adcref ^= 1
+
+            "S":                                            ' Thermal image pixel size
                 _fw := (_fw + 1) <# 18
                 _fh := (_fh + 1) <# 18
                 ser.printf("%d\n", _fw)
@@ -176,18 +195,22 @@ PUB cog_keyInput() | cmd
                 _fw := (_fw - 1) #> 1
                 _fh := (_fh - 1) #> 1
                 ser.printf("%d\n", _fw)
-            "-":
-                _offset := 0 #> (_offset - 1)               ' Display reference level/offset
+
+            "-":                                            ' Thermal image reference level/color offset
+                _offset := 0 #> (_offset - 1)
                 ser.position(0, 11)
                 ser.printf("Offset: %d\n", _offset)
             "=":
                 _offset := (_offset + 1) <# vga.MAX_COLOR
                 ser.position(0, 11)
                 ser.printf("Offset: %d\n", _offset)
+
             "t":                                            ' Dump raw frame data to terminal
                 dumpframe()
+
             "x":                                            ' Invert thermal image display X-axis
                 _invert_x ^= 1
+
             OTHER:
                 next
         _settings_changed := TRUE                           ' Trigger for main loop to call UpdateSettings()
