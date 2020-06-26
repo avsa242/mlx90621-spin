@@ -5,8 +5,8 @@
     Description: Driver for the Melexis MLX90621
      16x4 IR array (P2 version)
     Copyright (c) 2020
-    Started: Dec 2, 2019
-    Updated: Jun 13, 2020
+    started: Dec 2, 2019
+    Updated: Jun 26, 2020
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -21,12 +21,17 @@ CON
 
     EE_SIZE         = 256
 
+    WIDTH           = 16
+    HEIGHT          = 4
+    XMAX            = WIDTH-1
+    YMAX            = HEIGHT-1
+
 ' I2C Fast Mode
     I2CFMODE_ENA    = 0
     I2CFMODE_DIS    = 1
 
 ' Operation modes
-    CONT            = 0
+    CONTINUOUS      = 0
     SINGLE          = 1
 
 ' Sensor power states
@@ -64,8 +69,6 @@ OBJ
 
     core    : "core.con.mlx90621"
     i2c     : "com.i2c"
-    time    : "time"
-    u64     : "math.unsigned64"
 
 VAR
 
@@ -80,15 +83,15 @@ PUB Null
 PUB Start(SCL_PIN, SDA_PIN, I2C_HZ=100_000): okay
 
     if lookdown(SCL_PIN: 0..63) and lookdown(SDA_PIN: 0..63)
-        if I2C_HZ =< core.I2C_MAX_FREQ
-            if okay := i2c.Setup (SCL_PIN, SDA_PIN, I2C_HZ)             ' Start the I2C driver
-                time.MSleep (3)
-                if i2c.Present (core.EE_SLAVE_ADDR)
-                    ReadEEPROM                                          '   ...to read the EEPROM.
-                    time.MSleep (5)
-                    i2c.Setup (SCL_PIN, SDA_PIN, I2C_HZ)                ' This time re-setup for the sensor
-                    time.MSleep (5)
-                    if i2c.Present (SLAVE_WR)                           ' Check for response
+        if I2C_HZ <= core.I2C_MAX_FREQ
+            if okay := i2c.Setup (SCL_PIN, SDA_PIN, I2C_HZ)             ' start the I2C driver
+                waitms (3)
+                if i2c.present (core.EE_SLAVE_ADDR)
+                    readeeprom()                                        '   ...to read the EEPROM.
+                    waitms (5)
+                    i2c.setup (SCL_PIN, SDA_PIN, I2C_HZ)                ' This time re-setup for the sensor
+                    waitms (5)
+                    if i2c.present (SLAVE_WR)                           ' Check for response
                         return okay
 
     return FALSE                                                        'If we got here, something went wrong
@@ -99,16 +102,16 @@ PUB Stop
 
 PUB Defaults
 
-    OSCTrim (_ee_data[EE_OFFS_OSCTRIM]) ' Write osc trimming val extracted from EEPROM address $F7
-    RefreshRate (1)
-    ADCRes (18)
-    OpMode (CONT)
-    Powered (TRUE)
-    I2CFM (TRUE)
-    EEPROM (TRUE)
-    ADCReference (ADCREF_LO)
-    Reset (TRUE)
-    time.MSleep (5)
+    osctrim (_ee_data[EE_OFFS_OSCTRIM]) ' Write osc trimming val extracted from EEPROM address $F7
+    refreshrate (1)
+    adcres (18)
+    opmode (CONTINUOUS)
+    powered (TRUE)
+    i2cfm (TRUE)
+    eeprom (TRUE)
+    adcreference (ADCREF_LO)
+    reset (TRUE)
+    waitms (5)
 
 PUB ADCReference(mode=-2) | tmp
 ' Set ADC reference high, low
@@ -176,26 +179,20 @@ PUB GetColumn(buff_addr, col) | rawpix[2], line, offset
         return
 
     readReg (col * 4, 4, 1, @rawpix)
-    repeat line from 0 to 3
+    repeat line from 0 to YMAX
         offset := (col * 4) + line
-        word[buff_addr][offset] := u16s16 (rawpix.word[line])
+        word[buff_addr][offset] := rawpix.word[line] signx 15
 
 PUB GetFrame(buff_addr)
-' Read entire frame from sensor and stores it in buffer at buff_addr
+' Read entire frame from sensor and store it in buffer at buff_addr
 '   NOTE: This buffer must be at least 64 words
     readReg (0, 64, 1, buff_addr)
 
 PUB GetFrameExt(buff_addr) | line, col, rawpix[33], offset
 ' Read entire frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at buff_addr
 '   NOTE: This buffer must be at least 66 words
-    readReg (0, 66, 1, @rawpix)
-    repeat line from 0 to 3
-        repeat col from 0 to 15
-            offset := (col * 4) + line       'Compute offset location in array of current pixel
-            word[buff_addr][offset] := u16s16 (rawpix.word[offset])
-
-    _PTAT := (word[buff_addr][RAM_OFFS_PTAT] := rawpix.word[RAM_OFFS_PTAT])  ' Get PTAT data
-    word[buff_addr][RAM_OFFS_CPIX] := rawpix.word[RAM_OFFS_CPIX]             ' and Compensation Pixel, too
+    readReg (0, 66, 1, buff_addr)
+    _PTAT := word[buff_addr][RAM_OFFS_PTAT]                ' Get PTAT data
 
 PUB GetLine(buff_addr, line) | rawpix[8], col, offset
 ' Read a single line of pixels from the sensor into buff_addr
@@ -203,28 +200,28 @@ PUB GetLine(buff_addr, line) | rawpix[8], col, offset
     if not lookdown(line: 0..3)
         return
     readReg (line, 16, 4, @rawpix)
-    repeat col from 0 to 15
+    repeat col from 0 to XMAX
         offset := (col * 4) + line
-        word[buff_addr][offset] := u16s16 (rawpix.word[col])
+        word[buff_addr][offset] := rawpix.word[col] signx 15
 
 PUB GetPixel(buff_addr, col, line) | rawpix, offset
 ' Read a single pixel from the sensor into buff_addr
 '   Returns: pixel value
 '   NOTE: This buffer must be at least 1 word
-    case_fast lookdown(col: 0..15)
-        1..16:
+    case_fast col
+        0..XMAX:
         OTHER:
             return
 
-    case_fast lookdown(line: 0..3)
-        1..4:
+    case_fast line
+        0..YMAX:
         OTHER:
             return
 
     offset := (col * 4) + line 'Compute offset location in array of current pixel
 
     readReg (offset, 1, 0, @rawpix)
-    return word[buff_addr][offset] := u16s16 (rawpix & $FFFF)
+    return word[buff_addr][offset] := rawpix.word[0] signx 15
 
 PUB I2CFM(enabled=-2) | tmp
 ' Enable I2C Fast Mode+
@@ -263,13 +260,13 @@ PUB Measuring
 PUB OpMode(mode=-2) | tmp
 ' Set measurement mode
 '   Valid values:
-'     *CONT (0) - Continuous measurement mode
+'     *CONTINUOUS (0) - Continuous measurement mode
 '      SINGLE (1) - Single-measurement mode only
 '   Any other value polls the chip and returns the current setting
 '   NOTE: In SINGLE mode, measurements must be triggered manually using the Measure method
     readReg (core.CONFIG, 2, 0, @tmp)
     case mode
-        CONT, SINGLE:
+        CONTINUOUS, SINGLE:
             mode := (mode << core.FLD_MEASMODE)
         OTHER:
             return (tmp >> core.FLD_MEASMODE) & %1
@@ -326,15 +323,15 @@ PUB ReadEEPROM | tmp
 ' Read EEPROM contents into RAM
     bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
 
-    i2c.Start                           'Start reading at addr $00
-    i2c.Write (core.EE_SLAVE_ADDR)
-    i2c.Write ($00)
+    i2c.start()                           'start reading at addr $00
+    i2c.write (core.EE_SLAVE_ADDR)
+    i2c.write ($00)
 
-    i2c.Start                           'Read in the EEPROM
-    i2c.Write (core.EE_SLAVE_ADDR|1)
+    i2c.start()                           'Read in the EEPROM
+    i2c.write (core.EE_SLAVE_ADDR|1)
     repeat tmp from 0 to EE_SIZE-1
-        _ee_data[tmp] := i2c.Read (tmp == EE_SIZE-1)
-    i2c.Stop
+        _ee_data[tmp] := i2c.read (tmp == EE_SIZE-1)
+    i2c.stop()
 
 PUB RefreshRate(Hz=-2) | tmp
 ' Set sensor refresh rate
@@ -387,15 +384,15 @@ PRI readReg(reg_nr, nr_reads, rd_step, buff_addr): result | cmd_packet[2], tmp
         OTHER:
             return
 
-    i2c.Start()
+    i2c.start()
     repeat tmp from 0 to 4
-        i2c.Write(cmd_packet.byte[tmp])
+        i2c.write(cmd_packet.byte[tmp])
 
-    i2c.Start()
-    i2c.Write (SLAVE_RD)
+    i2c.start()
+    i2c.write (SLAVE_RD)
     repeat tmp from 0 to nr_reads-1
-        byte[buff_addr][tmp] := i2c.Read(tmp == nr_reads-1)
-    i2c.Stop()
+        byte[buff_addr][tmp] := i2c.read(tmp == nr_reads-1)
+    i2c.stop()
 
 PRI writeReg(reg_nr, val): result | cmd_packet[2], nr_bytes, tmp
 
@@ -425,18 +422,10 @@ PRI writeReg(reg_nr, val): result | cmd_packet[2], nr_bytes, tmp
         OTHER:
             return
 
-    i2c.Start()
+    i2c.start()
     repeat tmp from 0 to nr_bytes-1
-        i2c.Write(cmd_packet.byte[tmp])
-    i2c.Stop()
-
-PRI u16s16(unsigned16): signed16
-' Convert unsigned word to signed word
-    if unsigned16 > 32767
-        signed16 := unsigned16 - 65536
-    else
-        signed16 := unsigned16
-    return signed16
+        i2c.write(cmd_packet.byte[tmp])
+    i2c.stop()
 
 DAT
 {
