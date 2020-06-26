@@ -72,7 +72,7 @@ VAR
     word _fx, _fy, _fw, _fh
 
     byte _mlx_adcres, _mlx_adcref
-    byte _invert_x
+    byte _invert_x, _col_scl
 
 PUB Main()
 
@@ -82,8 +82,6 @@ PUB Main()
 ' Frame pixel size and screen location
     _fw := 10
     _fh := 10
-    _fx := CENTERX - ((_fw * 16) / 2)                       ' Approx center of screen
-    _fy := 10
 
     drawvscale(XMAX-5, 0, YMAX)
     updatesettings()
@@ -95,13 +93,14 @@ PUB Main()
 
 PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixex, pixey
 ' Draw the thermal image
+    vga.waitvsync()
     repeat y from 0 to mlx.YMAX
         repeat x from 0 to mlx.XMAX
             if _invert_x                                    ' Invert X display if set
                 ir_offset := ((mlx.XMAX-x) * 4) + y
             else
                 ir_offset := (x * 4) + y
-            color_c := (_ir_frame.word[ir_offset] * 8) / 256 + _offset   ' Computed color
+            color_c := (_ir_frame.word[ir_offset] * _col_scl) / 256 + _offset   ' Computed color
             pixsx := fx + (x * pixw)
             pixsy := fy + (y * (pixh + 1))
             pixex := pixsx + pixw
@@ -131,19 +130,23 @@ PUB DumpFrame() | x, y, ir_offset
 
 PUB UpdateSettings() | col, row, reftmp
 ' Settings have been changed by the user - update the sensor and the displayed settings
-    mlx.adcres (_mlx_adcres)
+    mlx.adcres (_mlx_adcres)                                ' Update sensor with current settings
     mlx.refreshrate (_mlx_refrate)
     mlx.adcreference (_mlx_adcref)
 
     reftmp := mlx.adcreference()                            ' Re-read from sensor for display below
     col := 0
-    row := ((_fh * 4) / vga.fontheight()) + 3               ' Position a few lines below thermal image
+    row := (vga.textrows-1) - 4                             ' Position settings at screen bottom
     vga.fgcolor(255)
     vga.position(col, row)
     vga.printf("X-axis invert: %s\n", lookupz(_invert_x: string("No "), string("Yes")))
     vga.printf("FPS: %dHz   \n", mlx.refreshrate())
     vga.printf("ADC: %dbits\n", mlx.adcres())
     vga.printf("ADC reference: %s\n", lookupz(reftmp: string("High"), string("Low  ")))
+
+    _fx := CENTERX - ((_fw * 16) / 2)                       ' Approx center of screen
+    _fy := 10
+    vga.box(0, 0, 310, CENTERY, 0, TRUE)                    ' Clear out the existing thermal image (in case resizing smaller)
     _settings_changed := FALSE
 
 PUB cog_keyInput() | cmd
@@ -152,29 +155,27 @@ PUB cog_keyInput() | cmd
         repeat until cmd := ser.charin()
         case cmd
             "A":                                            ' ADC resolution (bits)
-                _mlx_adcres++
-                if _mlx_adcres > 18
-                    _mlx_adcres := 18
+                _mlx_adcres := (_mlx_adcres + 1) <# 18
             "a":
-                _mlx_adcres--
-                if _mlx_adcres < 15
-                    _mlx_adcres := 15
+                _mlx_adcres := (_mlx_adcres - 1) #> 15
+            "C":
+                _col_scl := (_col_scl + 1) <# 16
+            "c":
+                _col_scl := (_col_scl - 1) #> 1
             "F":
-                _mlx_refrate *= 2                           ' Sensor refresh rate (Hz)
-                if _mlx_refrate > 512
-                    _mlx_refrate := 512
+                _mlx_refrate := (_mlx_refrate * 2) <# 512   ' Sensor refresh rate (Hz)
             "f":
-                _mlx_refrate /= 2
-                if _mlx_refrate < 1
-                    _mlx_refrate := 1
-            "R":
-                _mlx_adcref++                               ' Sensor ADC reference (hi/low)
-                if _mlx_adcref > 1
-                    _mlx_adcref := 1
+                _mlx_refrate := (_mlx_refrate / 2) #> 1
             "r":
-                _mlx_adcref--
-                if _mlx_adcref < 0
-                    _mlx_adcref := 0
+                _mlx_adcref ^= 1                            ' Sensor ADC reference (hi/low)
+            "S":
+                _fw := (_fw + 1) <# 18
+                _fh := (_fh + 1) <# 18
+                ser.printf("%d\n", _fw)
+            "s":
+                _fw := (_fw - 1) #> 1
+                _fh := (_fh - 1) #> 1
+                ser.printf("%d\n", _fw)
             "-":
                 _offset := 0 #> (_offset - 1)               ' Display reference level/offset
                 ser.position(0, 11)
@@ -221,6 +222,9 @@ PUB Setup()
         mlx.stop()
         repeat
 
+    _col_scl := 8
+    _fw := 10
+    _fh := 10
     _invert_x := 0
     cogspin(16, cog_keyinput, @_keyinput_stack)
 
