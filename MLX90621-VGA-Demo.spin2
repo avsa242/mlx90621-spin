@@ -79,13 +79,8 @@ PUB Main()
 
     vga.settimings(10, 33, 16, 89, 85, 640)
     setup()
-
-' Frame pixel size and screen location
-    _fw := 10
-    _fh := 10
-
     drawvscale(XMAX-5, 0, YMAX)
-    updatesettings()
+
     repeat
         if _settings_changed
             updatesettings()
@@ -190,20 +185,14 @@ PUB cog_keyInput() | cmd
             "S":                                            ' Thermal image pixel size
                 _fw := (_fw + 1) <# 18
                 _fh := (_fh + 1) <# 18
-                ser.printf("%d\n", _fw)
             "s":
                 _fw := (_fw - 1) #> 1
                 _fh := (_fh - 1) #> 1
-                ser.printf("%d\n", _fw)
 
             "-":                                            ' Thermal image reference level/color offset
                 _offset := 0 #> (_offset - 1)
-                ser.position(0, 11)
-                ser.printf("Offset: %d\n", _offset)
             "=":
                 _offset := (_offset + 1) <# vga.MAX_COLOR
-                ser.position(0, 11)
-                ser.printf("Offset: %d\n", _offset)
 
             "t":                                            ' Dump raw frame data to terminal
                 dumpframe()
@@ -250,6 +239,7 @@ PUB Setup()
     _fh := 10
     _invert_x := 0
     cogspin(16, cog_keyinput, @_keyinput_stack)
+    _settings_changed := TRUE
 
 PUB SetupPalette() | i, r, g, b, c
 ' Set up palette
