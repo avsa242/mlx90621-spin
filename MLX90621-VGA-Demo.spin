@@ -1,4 +1,4 @@
- {
+{
     --------------------------------------------
     Filename: MLX90621-VGA-Demo.spin
     Author: Jesse Burt
@@ -13,8 +13,8 @@
 
 CON
 
-    _clkmode    = cfg#_clkmode
-    _xinfreq    = cfg#_xinfreq
+    _clkmode        = cfg#_clkmode
+    _xinfreq        = cfg#_xinfreq
 
 ' -- User-modifiable constants
     LED             = cfg#LED1
@@ -22,13 +22,7 @@ CON
     SER_TX          = cfg#SER_TX_DEF
     SER_BAUD        = cfg#SER_BAUD_DEF
 
-    RES_PIN         = 36
-    DC_PIN          = 35
-    CS_PIN          = 34
-    CLK_PIN         = 33
-    DIN_PIN         = 32
-    SCK_HZ          = 20_000_000
-
+' MLX90621
     I2C_SCL         = 0
     I2C_SDA         = 1
     I2C_HZ          = 1_000_000
@@ -87,7 +81,7 @@ PUB Main
 
 PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixex, pixey, maxx, maxy, maxp
 ' Draw the thermal image
-'    vga.waitvsync
+    vga.waitvsync
     repeat y from 0 to mlx#YMAX
         repeat x from 0 to mlx#XMAX
             if _invert_x                                    ' Invert X display if set
@@ -95,7 +89,7 @@ PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixe
             else
                 ir_offset := (x * 4) + y
 
-            color_c := (_ir_frame[ir_offset] * _col_scl) / 1024 + _offset
+            color_c := _palette[(_ir_frame[ir_offset] * _col_scl) >> 10 + _offset]   ' Computed color
             pixsx := fx + (x * pixw)
             pixsy := fy + (y * (pixh + 1))
             pixex := pixsx + pixw
@@ -113,11 +107,11 @@ PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixe
 
 PUB DrawVScale(x, y, ht) | idx, color, scl_width, bottom, top, range                                     ' Draw the color scale setup at program start
     range := bottom := y+ht
-    top := y
+    top := 0
     scl_width := 5
 
-    repeat idx from bottom to top
-        color := (range-idx)
+    repeat idx from bottom to top+(YMAX-vga#MAX_COLOR)
+        color := _palette[(range-idx)]
         vga.line(x, idx, x+scl_width, idx, color)
 
 PUB DumpFrame | x, y, ir_offset
@@ -213,6 +207,7 @@ PUB Setup
         vga.fontaddress(fnt.BaseAddr)
         vga.fontsize(6, 8)
         vga.clear
+        setuppalette
     else
         ser.str(string("VGA 8bpp driver failed to start", ser#CR, ser#LF))
         repeat
@@ -237,6 +232,58 @@ PUB Setup
     _invert_x := 0
     cognew(cog_keyinput, @_keyinput_stack)
     _settings_changed := TRUE
+
+PUB SetupPalette | i, r, g, b, c, d
+' Set up palette
+    d := 4
+    r := g := b := c := 0
+    repeat i from 0 to vga#MAX_COLOR
+        case i
+            0..7:                                           ' violet
+                ifnot i // d                                ' Step color only every (d-1)
+                    r += 1 <# 3
+                    g := 0
+                    b += 1 <# 3
+            8..15:                                          ' blue
+                ifnot i // d
+                    r -= 1 #> 0
+                    g := 0
+                    b := b
+            16..23:                                         ' cyan
+                ifnot i // d
+                    r := 0
+                    g += 1 <# 3
+                    b := b
+            24..31:                                         ' green
+                ifnot i // d
+                    r := 0
+                    g := g
+                    b -= 1 #> 0
+            32..39:                                         ' yellow
+                ifnot i // d
+                    r += 1 <# 3
+                    g := g
+                    b := b
+            40..47:                                         ' red
+                ifnot i // d
+                    r := r
+                    g -= 1 #> 0
+                    b := 0
+            48..55:                                         ' pink
+                ifnot i // d
+                    r := r
+                    g += 1 <# 3
+                    b += 1 <# 3
+            56..62:                                         ' grey
+                ifnot i // d
+                    r -= 1 #> 0
+                    g -= 1 #> 0
+                    b -= 1 #> 0
+            63:                                             ' white
+                r := g := b := 3
+        c := (r << 4) | (g << 2) | b
+        _palette[i] := c
+    _palette[0] := $00
 
 #include "lib.utility.spin"
 
