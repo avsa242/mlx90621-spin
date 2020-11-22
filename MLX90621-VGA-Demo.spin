@@ -18,8 +18,6 @@ CON
 
 ' -- User-modifiable constants
     LED             = cfg#LED1
-    SER_RX          = cfg#SER_RX_DEF
-    SER_TX          = cfg#SER_TX_DEF
     SER_BAUD        = cfg#SER_BAUD_DEF
 
 ' MLX90621
@@ -68,20 +66,20 @@ VAR
     byte _invert_x, _col_scl
     byte _hotspot_mark
 
-PUB Main
+PUB Main{}
 
-    setup
+    setup{}
     drawvscale(XMAX-5, 0, YMAX)
 
     repeat
         if _settings_changed
-            updatesettings
+            updatesettings{}
         mlx.getframe (@_ir_frame)
         drawframe(_fx, _fy, _fw, _fh)
 
 PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixex, pixey, maxx, maxy, maxp
 ' Draw the thermal image
-    vga.waitvsync
+    vga.waitvsync{}
     repeat y from 0 to mlx#YMAX
         repeat x from 0 to mlx#XMAX
             if _invert_x                                    ' Invert X display if set
@@ -114,7 +112,7 @@ PUB DrawVScale(x, y, ht) | idx, color, scl_width, bottom, top, range            
         color := _palette[(range-idx)]
         vga.line(x, idx, x+scl_width, idx, color)
 
-PUB DumpFrame | x, y, ir_offset
+PUB DumpFrame{} | x, y, ir_offset
 ' Dump raw frame data to terminal
     repeat y from 0 to mlx#YMAX
         repeat x from 0 to mlx#XMAX
@@ -122,15 +120,15 @@ PUB DumpFrame | x, y, ir_offset
                 ir_offset := ((mlx#XMAX-x) * 4) + y
             else
                 ir_offset := (x * 4) + y
-            ser.position (1+(x * 9), 9+y)                   ' Accommodate spacing for hex words
-            ser.hex (_ir_frame[ir_offset], 8)
-            ser.char (" ")
+            ser.position(1+(x * 9), 9+y)                   ' Accommodate spacing for hex words
+            ser.hex(_ir_frame[ir_offset], 8)
+            ser.char(" ")
 
-PUB UpdateSettings | col, row, reftmp
+PUB UpdateSettings{} | col, row, reftmp
 ' Settings have been changed by the user - update the sensor and the displayed settings
-    mlx.adcres (_mlx_adcres)                                ' Update sensor with current settings
-    mlx.refreshrate (_mlx_refrate)
-    mlx.adcreference (_mlx_adcref)
+    mlx.adcres(_mlx_adcres)                                ' Update sensor with current settings
+    mlx.refreshrate(_mlx_refrate)
+    mlx.adcreference(_mlx_adcref)
 
     reftmp := mlx.adcreference(-2)                          ' Re-read from sensor for display below
     col := 0
@@ -147,10 +145,10 @@ PUB UpdateSettings | col, row, reftmp
     vga.box(0, 0, XMAX-10, CENTERY, 0, TRUE)                    ' Clear out the existing thermal image (in case resizing smaller)
     _settings_changed := FALSE
 
-PUB cog_keyInput | cmd
+PUB cog_keyInput{} | cmd
 
     repeat
-        repeat until cmd := ser.charin
+        repeat until cmd := ser.charin{}
         case cmd
             "A":                                            ' ADC resolution (bits)
                 _mlx_adcres := (_mlx_adcres + 1) <# 18
@@ -191,39 +189,36 @@ PUB cog_keyInput | cmd
             "x":                                            ' Invert thermal image display X-axis
                 _invert_x ^= 1
 
-            OTHER:
+            other:
                 next
         _settings_changed := TRUE                           ' Trigger for main loop to call UpdateSettings
 
-PUB Setup
+PUB Setup{}
 
-    repeat until ser.startrxtx (SER_RX, SER_TX, 0, SER_BAUD)
+    ser.start(SER_BAUD)
     time.msleep(30)
-    ser.clear
-    ser.str(string("Serial terminal started", ser#CR, ser#LF))
+    ser.clear{}
+    ser.strln(string("Serial terminal started"))
 
-    if vga.start(VGA_PINGROUP, WIDTH, HEIGHT, @_framebuffer)
-        ser.str(string("VGA 8bpp driver started", ser#CR, ser#LF))
-        vga.fontaddress(fnt.BaseAddr)
+    vga.start(VGA_PINGROUP, WIDTH, HEIGHT, @_framebuffer)
+        ser.strln(string("VGA 8bpp driver started"))
+        vga.fontaddress(fnt.baseaddr{})
         vga.fontsize(6, 8)
-        vga.clear
-        setuppalette
-    else
-        ser.str(string("VGA 8bpp driver failed to start", ser#CR, ser#LF))
-        repeat
+        vga.clear{}
+        setuppalette{}
 
     if mlx.start (I2C_SCL, I2C_SDA, I2C_HZ)
-        ser.str(string("MLX90621 driver started", ser#CR, ser#LF))
-        mlx.defaults
+        ser.strln(string("MLX90621 driver started"))
+        mlx.defaults{}
         mlx.opmode(mlx#CONTINUOUS)
-        _mlx_adcres := 18                                   ' Initial sensor settings
+        _mlx_adcres := 18                       ' Initial sensor settings
         _mlx_refrate := 32
         _mlx_adcref := 1
     else
-        ser.str(string("MLX90621 driver failed to start - halting", ser#CR, ser#LF))
+        ser.strln(string("MLX90621 driver failed to start - halting"))
         time.msleep (5)
-        vga.stop
-        mlx.stop
+        vga.stop{}
+        mlx.stop{}
         repeat
 
     _col_scl := 16
@@ -233,7 +228,7 @@ PUB Setup
     cognew(cog_keyinput, @_keyinput_stack)
     _settings_changed := TRUE
 
-PUB SetupPalette | i, r, g, b, c, d
+PUB SetupPalette{} | i, r, g, b, c, d
 ' Set up palette
     d := 4
     r := g := b := c := 0
@@ -284,8 +279,6 @@ PUB SetupPalette | i, r, g, b, c, d
         c := (r << 4) | (g << 2) | b
         _palette[i] := c
     _palette[0] := $00
-
-#include "lib.utility.spin"
 
 DAT
 {
