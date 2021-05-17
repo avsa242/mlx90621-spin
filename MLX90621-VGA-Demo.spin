@@ -190,7 +190,7 @@ PUB Setup{}
         vga.fontsize(6, 8)
         vga.clear{}
 
-    if mlx.start (I2C_SCL, I2C_SDA, I2C_HZ)
+    if mlx.startx(I2C_SCL, I2C_SDA, I2C_HZ)
         ser.strln(string("MLX90621 driver started"))
         mlx.defaults{}
         mlx.opmode(mlx#CONT)

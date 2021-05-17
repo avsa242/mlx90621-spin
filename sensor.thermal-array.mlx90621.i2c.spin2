@@ -67,7 +67,7 @@ CON
 
 OBJ
 
-    core    : "core.con.mlx90621i"              ' HW-specific constants
+    core    : "core.con.mlx90621"               ' HW-specific constants
     i2c     : "com.i2c"                         ' I2C engine
 
 VAR
