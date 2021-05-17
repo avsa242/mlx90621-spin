@@ -2,15 +2,14 @@
     --------------------------------------------
     Filename: MLX90621-VGA-Demo.spin
     Author: Jesse Burt
-    Description: Demo of the MLX90621 driver using
-        a VGA display
-    Copyright (c) 2020
+    Description: Demo of the MLX90621 driver using a
+        VGA display
+    Copyright (c) 2021
     Started: Jun 27, 2020
-    Updated: Jun 28, 2020
+    Updated: Jan 12, 2021
     See end of file for terms of use.
     --------------------------------------------
 }
-
 CON
 
     _clkmode        = cfg#_clkmode
@@ -18,14 +17,14 @@ CON
 
 ' -- User-modifiable constants
     LED             = cfg#LED1
-    SER_BAUD        = cfg#SER_BAUD_DEF
+    SER_BAUD        = 115_200
 
 ' MLX90621
-    I2C_SCL         = 0
-    I2C_SDA         = 1
+    I2C_SCL         = 16
+    I2C_SDA         = 17
     I2C_HZ          = 1_000_000
 
-    VGA_PINGROUP    = 2
+    VGA_PINGROUP    = 1                         ' 0, 1, 2, 3
 ' --
 
     WIDTH           = 160
@@ -43,7 +42,6 @@ OBJ
     cfg     : "core.con.boardcfg.quickstart-hib"
     ser     : "com.serial.terminal.ansi"
     time    : "time"
-    io      : "io"
     mlx     : "sensor.thermal-array.mlx90621.i2c"
     vga     : "display.vga.bitmap.160x120"
     fnt     : "font.5x8"
@@ -52,7 +50,6 @@ OBJ
 VAR
 
     long _keyinput_stack[50]
-    byte _palette[64]
     long _ir_frame[66]
     long _offset
     long _settings_changed
@@ -62,6 +59,7 @@ VAR
     word _fx, _fy, _fw, _fh
 
     byte _framebuffer[BUFFSZ]
+    byte _palette[64]
     byte _mlx_adcres, _mlx_adcref
     byte _invert_x, _col_scl
     byte _hotspot_mark
@@ -74,36 +72,40 @@ PUB Main{}
     repeat
         if _settings_changed
             updatesettings{}
-        mlx.getframe (@_ir_frame)
+        mlx.getframe(@_ir_frame)
         drawframe(_fx, _fy, _fw, _fh)
 
 PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixex, pixey, maxx, maxy, maxp
 ' Draw the thermal image
-    vga.waitvsync{}
+    vga.waitvsync{}                             ' wait for vertical sync
     repeat y from 0 to mlx#YMAX
         repeat x from 0 to mlx#XMAX
-            if _invert_x                                    ' Invert X display if set
+            if _invert_x                        ' Invert X display if set
                 ir_offset := ((mlx#XMAX-x) * 4) + y
             else
                 ir_offset := (x * 4) + y
-
-            color_c := _palette[(_ir_frame[ir_offset] * _col_scl) >> 10 + _offset]   ' Computed color
-            pixsx := fx + (x * pixw)
-            pixsy := fy + (y * (pixh + 1))
+            ' compute color
+            color_c := _palette[(_ir_frame[ir_offset] * _col_scl) >> 10 + _offset]
+            pixsx := fx + (x * pixw)            ' start and end image pixel
+            pixsy := fy + (y * (pixh + 1))      '   coords
             pixex := pixsx + pixw
             pixey := pixsy + pixh
-            if _ir_frame[ir_offset] > maxp             ' Check if this is the hottest spot
-                maxp := _ir_frame[ir_offset]
+            if _ir_frame[ir_offset] > maxp      ' Check if this is the hottest
+                maxp := _ir_frame[ir_offset]    '   spot in the image
                 maxx := pixsx
                 maxy := pixsy
             vga.box(pixsx, pixsy, pixex, pixey, color_c, TRUE)
 
-    if _hotspot_mark                                        ' Mark hotspot
-'        vga.box(maxx, maxy, maxx+pixw, maxy+pixh, vga#MAX_COLOR, false)          ' White box
-        vga.line(maxx, maxy+(pixh/2), maxx+pixw, maxy+(pixh/2), vga#MAX_COLOR)    '  - or cross-hair
-        vga.line(maxx+(pixw/2), maxy, maxx+(pixw/2), maxy+pixh, vga#MAX_COLOR)    ' /
+    if _hotspot_mark                            ' Mark hotspot
+        ' white box
+'        vga.box(maxx, maxy, maxx+pixw, maxy+pixh, vga#MAX_COLOR, false)
 
-PUB DrawVScale(x, y, ht) | idx, color, scl_width, bottom, top, range                                     ' Draw the color scale setup at program start
+        ' white cross-hair
+        vga.line(maxx, maxy+(pixh/2), maxx+pixw, maxy+(pixh/2), vga#MAX_COLOR)
+        vga.line(maxx+(pixw/2), maxy, maxx+(pixw/2), maxy+pixh, vga#MAX_COLOR)
+
+PUB DrawVScale(x, y, ht) | idx, color, scl_width, bottom, top, range
+' Draw the color scale setup at program start
     range := bottom := y+ht
     top := 0
     scl_width := 5
@@ -112,37 +114,28 @@ PUB DrawVScale(x, y, ht) | idx, color, scl_width, bottom, top, range            
         color := _palette[(range-idx)]
         vga.line(x, idx, x+scl_width, idx, color)
 
-PUB DumpFrame{} | x, y, ir_offset
-' Dump raw frame data to terminal
-    repeat y from 0 to mlx#YMAX
-        repeat x from 0 to mlx#XMAX
-            if _invert_x                                    ' Invert X display if set
-                ir_offset := ((mlx#XMAX-x) * 4) + y
-            else
-                ir_offset := (x * 4) + y
-            ser.position(1+(x * 9), 9+y)                   ' Accommodate spacing for hex words
-            ser.hex(_ir_frame[ir_offset], 8)
-            ser.char(" ")
-
 PUB UpdateSettings{} | col, row, reftmp
-' Settings have been changed by the user - update the sensor and the displayed settings
-    mlx.adcres(_mlx_adcres)                                ' Update sensor with current settings
-    mlx.refreshrate(_mlx_refrate)
+' Settings have been changed by the user - update the sensor and the
+'   displayed settings
+    mlx.adcres(_mlx_adcres)                     ' Update sensor with current
+    mlx.refreshrate(_mlx_refrate)               '   settings
     mlx.adcreference(_mlx_adcref)
 
-    reftmp := mlx.adcreference(-2)                          ' Re-read from sensor for display below
+    reftmp := mlx.adcreference(-2)              ' read from sensor for display
     col := 0
-    row := (vga.textrows-1) - 4                             ' Position settings at screen bottom
+    row := (vga.textrows{}-1) - 5               ' Position at screen bottom
     vga.fgcolor(vga#MAX_COLOR)
     vga.position(col, row)
-    vga.printf(string("X-axis invert: %s\n"), lookupz(_invert_x: string("No "), string("Yes")), 0, 0, 0, 0, 0)
-    vga.printf(string("FPS: %dHz   \n"), mlx.refreshrate(-2), 0, 0, 0, 0, 0)
-    vga.printf(string("ADC: %dbits\n"), mlx.adcres(-2), 0, 0, 0, 0, 0)
-    vga.printf(string("ADC reference: %s\n"), lookupz(reftmp: string("High"), string("Low  ")), 0, 0, 0, 0, 0)
 
-    _fx := CENTERX - ((_fw * 16) / 2)                       ' Approx center of screen
+    vga.printf1(string("X-axis invert: %s\n"), lookupz(_invert_x: string("No "), string("Yes")))
+    vga.printf1(string("FPS: %dHz   \n"), mlx.refreshrate(-2))
+    vga.printf1(string("ADC: %dbits\n"), mlx.adcres(-2))
+    vga.printf1(string("ADC reference: %s\n"), lookupz(reftmp: string("High"), string("Low  ")))
+
+    _fx := CENTERX - ((_fw * 16) / 2)           ' Approx center of screen
     _fy := 10
-    vga.box(0, 0, XMAX-10, CENTERY, 0, TRUE)                    ' Clear out the existing thermal image (in case resizing smaller)
+    vga.box(0, 0, XMAX-10, CENTERY, 0, TRUE)    ' Clear out last thermal image
+                                                ' (in case resizing smaller)
     _settings_changed := FALSE
 
 PUB cog_keyInput{} | cmd
@@ -150,49 +143,38 @@ PUB cog_keyInput{} | cmd
     repeat
         repeat until cmd := ser.charin{}
         case cmd
-            "A":                                            ' ADC resolution (bits)
+            "A":                                ' ADC resolution (bits)
                 _mlx_adcres := (_mlx_adcres + 1) <# 18
             "a":
                 _mlx_adcres := (_mlx_adcres - 1) #> 15
-
-            "C":                                            ' Color scaling/contrast
-                _col_scl := (_col_scl + 1) <# 16
+            "C":                                ' Color scaling/contrast
+                _col_scl := (_col_scl + 1) <# 16' ++
             "c":
-                _col_scl := (_col_scl - 1) #> 1
-
-            "F":
-                _mlx_refrate := (_mlx_refrate * 2) <# 512   ' Sensor refresh rate (Hz)
+                _col_scl := (_col_scl - 1) #> 1 ' --
+            "F":                                ' sensor refresh rate (Hz)
+                _mlx_refrate := (_mlx_refrate * 2) <# 512
             "f":
                 _mlx_refrate := (_mlx_refrate / 2) #> 1
-
-            "h":                                            ' Mark hotspot
+            "h":                                ' mark hotspot on/off
                 _hotspot_mark ^= 1
-
-            "r":                                            ' Sensor ADC reference (hi/low)
+            "r":                                ' sensor ADC reference (hi/low)
                 _mlx_adcref ^= 1
-
-            "S":                                            ' Thermal image pixel size
-                _fw := (_fw + 1) <# 9
+            "S":                                ' thermal image pixel size
+                _fw := (_fw + 1) <# 9           ' ++
                 _fh := (_fh + 1) <# 9
             "s":
-                _fw := (_fw - 1) #> 1
+                _fw := (_fw - 1) #> 1           ' --
                 _fh := (_fh - 1) #> 1
-
-            "-":                                            ' Thermal image reference level/color offset
-                _offset := 0 #> (_offset - 1)
+            "-":                                ' thermal image reference level
+                _offset := 0 #> (_offset - 1)   '   or color offset
             "=":
                 _offset := (_offset + 1) <# vga#MAX_COLOR
-
-            "t":                                            ' Dump raw frame data to terminal
-                dumpframe
-
-            "x":                                            ' Invert thermal image display X-axis
+            "x":                                ' invert thermal image X-axis
                 _invert_x ^= 1
-
             other:
                 next
-        _settings_changed := TRUE                           ' Trigger for main loop to call UpdateSettings
-
+        _settings_changed := TRUE               ' trigger for main loop to call
+                                                '   UpdateSettings()
 PUB Setup{}
 
     ser.start(SER_BAUD)
@@ -200,23 +182,24 @@ PUB Setup{}
     ser.clear{}
     ser.strln(string("Serial terminal started"))
 
+    setuppalette{}
     vga.start(VGA_PINGROUP, WIDTH, HEIGHT, @_framebuffer)
         ser.strln(string("VGA 8bpp driver started"))
         vga.fontaddress(fnt.baseaddr{})
+        vga.fontscale(1)
         vga.fontsize(6, 8)
         vga.clear{}
-        setuppalette{}
 
     if mlx.start (I2C_SCL, I2C_SDA, I2C_HZ)
         ser.strln(string("MLX90621 driver started"))
         mlx.defaults{}
-        mlx.opmode(mlx#CONTINUOUS)
+        mlx.opmode(mlx#CONT)
         _mlx_adcres := 18                       ' Initial sensor settings
         _mlx_refrate := 32
         _mlx_adcref := 1
     else
         ser.strln(string("MLX90621 driver failed to start - halting"))
-        time.msleep (5)
+        time.msleep(5)
         vga.stop{}
         mlx.stop{}
         repeat

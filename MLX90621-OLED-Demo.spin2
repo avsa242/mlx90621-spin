@@ -22,15 +22,15 @@ CON
     SER_TX      = cfg.SER_TX
     SER_BAUD    = 2_000_000
 
-    RES_PIN     = 36
-    DC_PIN      = 35
-    CS_PIN      = 34
-    CLK_PIN     = 33
-    DIN_PIN     = 32
-    SCK_HZ      = 20_000_000
+    RES_PIN     = 28
+    DC_PIN      = 27
+    CS_PIN      = 26
+    CLK_PIN     = 25
+    DIN_PIN     = 24
+    SCK_HZ      = 15_000_000
 
-    I2C_SCL     = 28
-    I2C_SDA     = 27
+    I2C_SCL     = 0
+    I2C_SDA     = 1
     I2C_HZ      = 1_000_000
 ' --
 
@@ -100,7 +100,7 @@ PUB DrawFrame() | x, y, color_c, k, ex, ey
 '            color_c := _ir_frame.word[k]+_offset               ' Raw value from sensor
             oled.box((x * 6) + _sx, (y * 6) + _sy, (x * 6) + ex, (y * 6) + ey, color_c, TRUE)
 
-    oled.Update
+    oled.Update()
 
 PUB DrawScale() | i
 ' Draw Color Scale
@@ -223,7 +223,7 @@ PUB Setup()
     ser.Clear()
     ser.printf("Serial terminal started\n")
 
-    if oled.Start (CS_PIN, DC_PIN, DIN_PIN, CLK_PIN, RES_PIN, SCK_HZ, @_frame_buff)
+    if oled.Start (CS_PIN, CLK_PIN, DIN_PIN, DC_PIN, RES_PIN, SCK_HZ, @_frame_buff)
         ser.printf("SSD1331 driver started\n")
         oled.DefaultsCommon()
     else
@@ -248,9 +248,7 @@ PUB Setup()
     mlx.ADCRes (18)
     mlx.RefreshRate (32)
 
-    cognew(keydaemon, @_keydaemon_stack)
-
-#include "lib.utility.spin2"
+    cogspin(16, keydaemon(), @_keydaemon_stack)
 
 DAT
 {

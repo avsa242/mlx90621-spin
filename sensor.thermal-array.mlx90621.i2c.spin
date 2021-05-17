@@ -4,9 +4,9 @@
     Author: Jesse Burt
     Description: Driver for the Melexis MLX90621
         16x4 IR array
-    Copyright (c) 2020
+    Copyright (c) 2021
     started: Dec 2, 2019
-    Updated: Nov 22, 2020
+    Updated: Jan 11, 2021
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -31,7 +31,7 @@ CON
     I2CFMODE_DIS    = 1
 
 ' Operation modes
-    CONTINUOUS      = 0
+    CONT      = 0
     SINGLE          = 1
 
 ' Sensor power states
@@ -106,7 +106,7 @@ PUB Defaults{}
     osctrim(_ee_data[EE_OFFS_OSCTRIM])
     refreshrate(1)
     adcres(18)
-    opmode(CONTINUOUS)
+    opmode(CONT)
     powered(TRUE)
     i2cfm(TRUE)
     eeprom(TRUE)
@@ -124,11 +124,11 @@ PUB ADCReference(mode): curr_mode
     readreg(core#CONFIG, 2, 0, @curr_mode)
     case mode
         ADCREF_HI, ADCREF_LO:
-            mode := mode << core#FLD_ADCHIGHREF
+            mode := mode << core#ADCHIGHREF
         other:
-            return (curr_mode >> core#FLD_ADCHIGHREF) & %1
+            return (curr_mode >> core#ADCHIGHREF) & 1
 
-    mode := ((curr_mode & core#MASK_ADCHIGHREF) | mode) & core#CONFIG_MASK
+    mode := ((curr_mode & core#ADCHIGHREF_MASK) | mode)
     writereg(core#CONFIG, mode)
 
 'TODO: Call Re-cal method here
@@ -140,12 +140,12 @@ PUB ADCRes(bits): curr_res
     readreg(core#CONFIG, 2, 0, @curr_res)
     case bits
         15..18:
-            bits := lookdownz(bits: 15, 16, 17, 18) << core#FLD_ADCRES
+            bits := lookdownz(bits: 15, 16, 17, 18) << core#ADCRES
         other:
-            curr_res := (curr_res >> core#FLD_ADCRES) & core#BITS_ADCRES
-            return lookupz(result: 15, 16, 17, 18)
+            curr_res := (curr_res >> core#ADCRES) & core#ADCRES_BITS
+            return lookupz(curr_res: 15, 16, 17, 18)
 
-    bits := ((curr_res & core#MASK_ADCRES) | bits) & core#CONFIG_MASK
+    bits := ((curr_res & core#ADCRES_MASK) | bits)
     writereg(core#CONFIG, bits)
 
 '    _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
@@ -180,11 +180,11 @@ PUB EEPROM(state): curr_state
     readreg(core#CONFIG, 2, 0, @curr_state)
     case ||(state)
         0, 1:
-            state := (1-(||(state))) << core#FLD_EEPROMENA
+            state := (1-||(state)) << core#EEPROMENA
         other:
-            return (1-((curr_state >> core#FLD_EEPROMENA) & %1)) * TRUE
+            return (1-((curr_state >> core#EEPROMENA) & 1)) == 1
 
-    state := ((curr_state & core#MASK_EEPROMENA) | state) & core#CONFIG_MASK
+    state := ((curr_state & core#EEPROMENA_MASK) | state)
     writereg(core#CONFIG, state)
 
 PUB GetColumn(ptr_buff, col) | tmpframe[2], tmp, offs, line
@@ -198,20 +198,20 @@ PUB GetColumn(ptr_buff, col) | tmpframe[2], tmp, offs, line
         offs := (col * 4) + line
         long[ptr_buff][tmp] := ~~tmpframe.word[offs]
 
-PUB GetFrame(ptr_buff) | tmpframe[64], offs
+PUB GetFrame(ptr_buff) | tmpframe[32], offs
 ' Read entire frame from sensor and store it in buffer at ptr_buff
 '   NOTE: This buffer must be at least 64 words
     readreg(0, 64, 1, @tmpframe)
     repeat offs from 0 to 63
         long[ptr_buff][offs] := ~~tmpframe.word[offs]
 
-PUB GetFrameExt(ptr_buff) | tmpframe[66], offs, line, col
+PUB GetFrameExt(ptr_buff) | tmpframe[33], offs, line, col
 ' Read entire frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at ptr_buff
 '   NOTE: This buffer must be at least 66 words
     readreg(0, 66, 1, @tmpframe)
     repeat offs from 0 to 65
         long[ptr_buff][offs] := ~~tmpframe.word[offs]
-    _PTAT := tmpframe[RAM_OFFS_PTAT]                        ' Get PTAT data
+    _PTAT := tmpframe[RAM_OFFS_PTAT]            ' Get PTAT data
 
 PUB GetLine(ptr_buff, line) | tmpframe[8], offs, col
 ' Read a single line of pixels from the sensor into ptr_buff
@@ -237,7 +237,7 @@ PUB GetPixel(ptr_buff, col, line): pix_word | tmpframe, offs
         other:
             return
 
-    offs := (col * 4) + line                                ' Calc offset within array image
+    offs := (col * 4) + line                    ' offset within array image
 
     readreg(offs, 1, 0, @tmpframe)
     long[ptr_buff][offs] := pix_word := ~~tmpframe.word[0]
@@ -247,18 +247,17 @@ PUB I2CFM(mode): curr_mode
 '   Valid values:
 '     *TRUE (-1 or 1): Max I2C bus speed 1000kbit/sec
 '      FALSE (0): Max I2C bus speed 400kbit/sec
-'   NOTE: This is independent of, and has no effect on what speed the driver was started with.
-'       e.g., you may have started the driver at 400kHz, but left this option at the default 1000kHz.
-'       Thus, the sensor will _allow_ traffic at up to 1000kHz, but the driver will only actually be operating at 400kHz.
+'   NOTE: This is independent of, and has no effect on what speed the driver
+'   was started with.
 '   Any other value polls the chip and returns the current setting
     readreg(core#CONFIG, 2, 0, @curr_mode)
     case ||(mode)
         0, 1:
-            mode := (1-(||(mode))) << core#FLD_I2CFMP
+            mode := (1-(||(mode))) << core#I2CFMP
         other:
-            return (1-((curr_mode >> core#FLD_I2CFMP) & %1)) == 1
+            return (1-((curr_mode >> core#I2CFMP) & 1)) == 1
 
-    mode := ((curr_mode & core#MASK_I2CFMP) | mode) & core#CONFIG_MASK
+    mode := ((curr_mode & core#I2CFMP_MASK) | mode)
     writereg(core#CONFIG, curr_mode)
 
 PUB Measure{}
@@ -274,38 +273,37 @@ PUB Measuring{}: flag
 '       TRUE (-1): IR measurement running
 '   NOTE: This method is intended for use when MeasureMode is set to SINGLE
     readreg(core#CONFIG, 2, 0, @flag)
-    return ((flag >> core#FLD_MEASURING) & %1) == 1
+    return ((flag >> core#MEASURING) & 1) == 1
 
 PUB OpMode(mode): curr_mode
 ' Set measurement mode
 '   Valid values:
-'     *CONTINUOUS (0) - Continuous measurement mode
+'     *CONT (0) - Continuous measurement mode
 '      SINGLE (1) - Single-measurement mode only
 '   Any other value polls the chip and returns the current setting
 '   NOTE: In SINGLE mode, measurements must be triggered manually using the Measure method
     readreg(core#CONFIG, 2, 0, @curr_mode)
     case mode
-        CONTINUOUS, SINGLE:
-            mode := (mode << core#FLD_MEASMODE)
+        CONT, SINGLE:
+            mode := (mode << core#MEASMODE)
         other:
-            return (curr_mode >> core#FLD_MEASMODE) & %1
+            return (curr_mode >> core#MEASMODE) & 1
 
-    mode := ((curr_mode & core#MASK_MEASMODE) | mode) & core#CONFIG_MASK
-    writereg(core#CONFIG, curr_mode)
+    mode := ((curr_mode & core#MEASMODE_MASK) | mode)
+    writereg(core#CONFIG, mode)
 
 PUB OSCTrim(val): curr_val
 ' Set Oscillator Trim value
 '   Valid values: 0..127 (default: 0)
 '   Any other value polls the chip and returns the current setting
 '   NOTE: It is recommended to use the factory set value contained in the device's EEPROM.
-    readreg(core#OSC_TRIM, 1, 0, @curr_val)
     case val
         0..127:
+            val &= core#OSC_TRIM_MASK
+            writereg(core#OSC_TRIM, curr_val)
         other:
+            readreg(core#OSC_TRIM, 1, 0, @curr_val)
             return curr_val & core#OSC_TRIM_MASK
-
-    val := val & core#OSC_TRIM_MASK
-    writereg(core#OSC_TRIM, curr_val)
 
 PUB Powered(state): curr_state
 ' Power on sensor
@@ -316,25 +314,26 @@ PUB Powered(state): curr_state
     readreg(core#CONFIG, 2, 0, @curr_state)
     case ||(state)
         0, 1:
-            state := (not(||(state))) << core#FLD_OPMODE        ' Logic on the chip is reversed
+            ' chip logic is reversed, so flip the bit
+            state := (||(state) ^ 1) << core#OPMODE
         other:
-            return not( (curr_state >> core#FLD_OPMODE) & %1 )
+            return (((curr_state >> core#OPMODE) & 1) ^ 1)
 
-    state := ((curr_state & core#MASK_OPMODE) | state) & core#CONFIG_MASK
+    state := ((curr_state & core#OPMODE_MASK) | state)
     writereg(core#CONFIG, state)
 
 PUB ReadEEPROM{} | tmp
-' Read EEPROM contents into RAM
-    bytefill (@_ee_data, $00, EE_SIZE)  'Make sure data in RAM copy of EEPROM image is clear
+' Read sensor EEPROM contents into RAM
+    bytefill(@_ee_data, $00, EE_SIZE)           ' clear RAM copy of EEPROM
 
-    i2c.start{}                                 'start reading at addr $00
+    i2c.start{}
     i2c.write(core#EE_SLAVE_ADDR)
     i2c.write($00)
 
-    i2c.start{}                                 'Read in the EEPROM
+    i2c.start{}                                 ' Read in the EEPROM
     i2c.write(core#EE_SLAVE_ADDR|1)
     repeat tmp from 0 to EE_SIZE-1
-        _ee_data[tmp] := i2c.read (tmp == EE_SIZE-1)
+        _ee_data[tmp] := i2c.read(tmp == EE_SIZE-1)
     i2c.stop{}
 
 PUB RefreshRate(rate): curr_rate
@@ -345,12 +344,14 @@ PUB RefreshRate(rate): curr_rate
     readreg(core#CONFIG, 2, 0, @curr_rate)
     case rate
         512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0:
-            rate := lookdownz(rate: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
+            rate := lookdownz(rate: 512, 512, 512, 512, 512, 512, 256, 128,{
+}           64, 32, 16, 8, 4, 2, 1, 0)
         other:
-            curr_rate := curr_rate & core#BITS_REFRATE
-            return lookupz(curr_rate: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0)
+            curr_rate &= core#REFRATE_BITS
+            return lookupz(curr_rate: 512, 512, 512, 512, 512, 512, 256, 128,{
+}           64, 32, 16, 8, 4, 2, 1, 0)
 
-    rate := ((curr_rate & core#MASK_REFRATE) | rate) & core#CONFIG_MASK
+    rate := ((curr_rate & core#REFRATE_MASK) | rate) & core#CONFIG_MASK
     writereg(core#CONFIG, rate)
 
 PUB Reset(set): flag
@@ -362,70 +363,68 @@ PUB Reset(set): flag
     readreg(core#CONFIG, 2, 0, @flag)
     case ||(set)
         1:
-            set := 1 << core#FLD_RESET
+            set := 1 << core#RESET
         other:
-            return ((flag >> core#FLD_RESET) & %1) == 1
+            return (((flag >> core#RESET) & 1) == 1)
 
-    set := ((flag & core#MASK_RESET) | set) & core#CONFIG_MASK
+    set := ((flag & core#RESET_MASK) | set)
     writereg(core#CONFIG, set)
 
-PRI readReg(reg_nr, nr_reads, rd_step, ptr_buff): result | cmd_packet[2], tmp
+PRI readReg(reg_nr, nr_reads, rd_step, ptr_buff) | cmd_pkt[2]
 
-    cmd_packet.byte[0] := SLAVE_WR
-    cmd_packet.byte[1] := core#CMD_READREG
+    cmd_pkt.byte[0] := SLAVE_WR
+    cmd_pkt.byte[1] := core#CMD_READREG
     case reg_nr
-        $00..$41:                           'RAM
-            cmd_packet.byte[2] := reg_nr
-            cmd_packet.byte[3] := rd_step
-            cmd_packet.byte[4] := nr_reads
+        $00..$41:                               ' RAM
+            cmd_pkt.byte[2] := reg_nr
+            cmd_pkt.byte[3] := rd_step
+            cmd_pkt.byte[4] := nr_reads
             nr_reads <<= 1
-        $92..$93:                           'Configuration regs
-            cmd_packet.byte[2] := reg_nr
-            cmd_packet.byte[3] := 0         'Address step
-            cmd_packet.byte[4] := 1         'Number of reads sent as command parameter to device
+        $92..$93:                               ' Configuration regs
+            cmd_pkt.byte[2] := reg_nr
+            cmd_pkt.byte[3] := 0                ' Address step
+            cmd_pkt.byte[4] := 1                ' Number of reads
             nr_reads := 2
         other:
             return
 
-    i2c.start
-    i2c.wr_block (@cmd_packet, 5)
+    i2c.start{}
+    i2c.wr_block(@cmd_pkt, 5)
 
-    i2c.start
-    i2c.write (SLAVE_RD)
-    i2c.rd_block (ptr_buff, nr_reads, TRUE)
-    i2c.stop
+    i2c.start{}
+    i2c.write(SLAVE_RD)
+    i2c.rd_block(ptr_buff, nr_reads, TRUE)
+    i2c.stop{}
 
-PRI writeReg(reg_nr, val): result | cmd_packet[2], nr_bytes, tmp
+PRI writeReg(reg_nr, val) | cmd_pkt[2], nr_bytes
 
-    cmd_packet.byte[0] := SLAVE_WR
+    cmd_pkt.byte[0] := SLAVE_WR
     case reg_nr
         core#CONFIG:
-            cmd_packet.byte[1] := core#CMD_WRITEREG_CFG
-            cmd_packet.byte[2] := val.byte[0] - CFG_CKBYTE
-            cmd_packet.byte[3] := val.byte[0]
-            cmd_packet.byte[4] := val.byte[1] - CFG_CKBYTE
-            cmd_packet.byte[5] := val.byte[1]
+            cmd_pkt.byte[1] := core#CMD_WRITEREG_CFG
+            cmd_pkt.byte[2] := val.byte[0] - CFG_CKBYTE
+            cmd_pkt.byte[3] := val.byte[0]
+            cmd_pkt.byte[4] := val.byte[1] - CFG_CKBYTE
+            cmd_pkt.byte[5] := val.byte[1]
             nr_bytes := 6
-
         core#OSC_TRIM:
-            cmd_packet.byte[1] := core#CMD_WRITEREG_OSCTRIM
-            cmd_packet.byte[2] := val.byte[0] - OSC_CKBYTE
-            cmd_packet.byte[3] := val.byte[0]
-            cmd_packet.byte[4] := val.byte[1] - OSC_CKBYTE
-            cmd_packet.byte[5] := val.byte[1]
+            cmd_pkt.byte[1] := core#CMD_WRITEREG_OSCTRIM
+            cmd_pkt.byte[2] := val.byte[0] - OSC_CKBYTE
+            cmd_pkt.byte[3] := val.byte[0]
+            cmd_pkt.byte[4] := val.byte[1] - OSC_CKBYTE
+            cmd_pkt.byte[5] := val.byte[1]
             nr_bytes := 6
-
         core#CMD_STEP_MEASURE:
-            cmd_packet.byte[1] := core#CMD_STEP_MEASURE & $FF
-            cmd_packet.byte[2] := (core#CMD_STEP_MEASURE >> 8) & $FF
+            cmd_pkt.byte[1] := core#CMD_STEP_MEASURE & $FF
+            cmd_pkt.byte[2] := (core#CMD_STEP_MEASURE >> 8) & $FF
             nr_bytes := 3
 
         other:
             return
 
-    i2c.start
-    i2c.wr_block (@cmd_packet, nr_bytes)
-    i2c.stop
+    i2c.start{}
+    i2c.wr_block(@cmd_pkt, nr_bytes)
+    i2c.stop{}
 
 DAT
 {
