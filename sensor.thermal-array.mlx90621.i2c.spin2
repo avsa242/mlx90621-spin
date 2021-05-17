@@ -6,7 +6,7 @@
         16x4 IR array (P2 version)
     Copyright (c) 2021
     started: Dec 2, 2019
-    Updated: Jan 13, 2021
+    Updated: May 17, 2021
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -67,35 +67,38 @@ CON
 
 OBJ
 
-    core    : "core.con.mlx90621"
-    i2c     : "com.i2c"
+    core    : "core.con.mlx90621i"              ' HW-specific constants
+    i2c     : "com.i2c"                         ' I2C engine
 
 VAR
 
     word _ptat
-
     byte _ee_data[EE_SIZE]
 
 PUB Null()
 ' This is not a top-level object
 
-PUB Start(SCL_PIN, SDA_PIN, I2C_HZ): okay
-' Start using "standard" Propeller I2C pins, and 100kHz
-    if lookdown(SCL_PIN: 0..63) and lookdown(SDA_PIN: 0..63)
-        if I2C_HZ <= core.I2C_MAX_FREQ
-            if okay := i2c.setup(SCL_PIN, SDA_PIN, I2C_HZ)' start the I2C driver
-                waitms(3)
-                if i2c.present(core.EE_SLAVE_ADDR)
-                    readeeprom()                        '   ...to read the EEPROM.
-                    waitms(5)
-                    i2c.setup(SCL_PIN, SDA_PIN, I2C_HZ)' This time re-setup for the sensor
-                    waitms(5)
-                    if i2c.present(SLAVE_WR)           ' check device bus presence
-                        return okay
-
-    return FALSE                                ' something above failed
+PUB Startx(SCL_PIN, SDA_PIN, I2C_HZ): status
+' Start using custom I/O settings
+    if lookdown(SCL_PIN: 0..63) and lookdown(SDA_PIN: 0..63) and {
+}   I2C_HZ <= core.I2C_MAX_FREQ
+        if (status := i2c.init(SCL_PIN, SDA_PIN, I2C_HZ))
+            waitus(core.T_POR)
+            if i2c.present(core.EE_SLAVE_ADDR)
+                readeeprom()                        '   ...to read the EEPROM.
+                waitms(5)
+                i2c.setup(SCL_PIN, SDA_PIN, I2C_HZ)' This time re-setup for the sensor
+                waitms(5)
+                if i2c.present(SLAVE_WR)           ' check device bus presence
+                    return
+    ' if this point is reached, something above failed
+    ' Double check I/O pin assignments, connections, power
+    ' Lastly - make sure you have at least one free core/cog
+    return FALSE
 
 PUB Stop()
+
+    i2c.deinit()
 
 PUB Defaults()
 ' Write osc trimming val extracted from EEPROM address $F7
@@ -194,14 +197,14 @@ PUB GetColumn(ptr_buff, col) | tmpframe[2], tmp, offs, line
         offs := (col * 4) + line
         long[ptr_buff][tmp] := ~~tmpframe.word[offs]
 
-PUB GetFrame(ptr_buff) | tmpframe[64], offs
+PUB GetFrame(ptr_buff) | tmpframe[32], offs
 ' Read entire frame from sensor and store it in buffer at ptr_buff
 '   NOTE: This buffer must be at least 64 words
     readreg(0, 64, 1, @tmpframe)
     repeat offs from 0 to 63
         long[ptr_buff][offs] := ~~tmpframe.word[offs]
 
-PUB GetFrameExt(ptr_buff) | tmpframe[66], offs, line, col
+PUB GetFrameExt(ptr_buff) | tmpframe[33], offs, line, col
 ' Read entire frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at ptr_buff
 '   NOTE: This buffer must be at least 66 words
     readreg(0, 66, 1, @tmpframe)
@@ -366,8 +369,8 @@ PUB Reset(set=-2): flag
     set := ((flag & core.RESET_MASK) | set)
     writereg(core.CONFIG, set)
 
-PRI readReg(reg_nr, nr_reads, rd_step, ptr_buff) | cmd_pkt[2], tmp
-
+PRI readReg(reg_nr, nr_reads, rd_step, ptr_buff) | cmd_pkt[2]
+' Read nr_reads from device into ptr_buff
     cmd_pkt.byte[0] := SLAVE_WR
     cmd_pkt.byte[1] := core.CMD_READREG
     case reg_nr
@@ -385,17 +388,15 @@ PRI readReg(reg_nr, nr_reads, rd_step, ptr_buff) | cmd_pkt[2], tmp
             return
 
     i2c.start()
-    repeat tmp from 0 to 4
-        i2c.write(cmd_pkt.byte[tmp])
+    i2c.wrblock_lsbf(@cmd_pkt, 5)
 
     i2c.start()
     i2c.write(SLAVE_RD)
-    repeat tmp from 0 to nr_reads-1
-        byte[ptr_buff][tmp] := i2c.read(tmp == nr_reads-1)
+    i2c.rdblock_lsbf(ptr_buff, nr_reads, i2c.NAK)
     i2c.stop()
 
-PRI writeReg(reg_nr, val) | cmd_pkt[2], nr_bytes, tmp
-
+PRI writeReg(reg_nr, val) | cmd_pkt[2], nr_bytes
+' Write val to device
     cmd_pkt.byte[0] := SLAVE_WR
     case reg_nr
         core.CONFIG:
@@ -421,8 +422,7 @@ PRI writeReg(reg_nr, val) | cmd_pkt[2], nr_bytes, tmp
             return
 
     i2c.start()
-    repeat tmp from 0 to nr_bytes-1
-        i2c.write(cmd_pkt.byte[tmp])
+    i2c.wrblock_lsbf(@cmd_pkt, nr_bytes)
     i2c.stop()
 
 DAT

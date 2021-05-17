@@ -4,7 +4,7 @@
     Author: Jesse Burt
     Copyright (c) 2021
     Started: Nov 11, 2018
-    Updated: Jan 11, 2021
+    Updated: May 17, 2021
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -16,6 +16,8 @@ CON
 
     EE_MAX_FREQ         = 400_000
     EE_SLAVE_ADDR       = $50 << 1
+
+    T_POR               = 3_000                 ' usec
 
 ' Register definitions
     CMD_READREG         = $02

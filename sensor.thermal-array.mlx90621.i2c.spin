@@ -5,8 +5,8 @@
     Description: Driver for the Melexis MLX90621
         16x4 IR array
     Copyright (c) 2021
-    started: Dec 2, 2019
-    Updated: Jan 11, 2021
+    Started: Jan 4, 2018
+    Updated: May 17, 2021
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -67,39 +67,40 @@ CON
 
 OBJ
 
-    core    : "core.con.mlx90621"
-    i2c     : "com.i2c"
-    time    : "time"
-    io      : "io"
+    core    : "core.con.mlx90621"               ' HW-specific constants
+    i2c     : "com.i2c"                         ' PASM I2C engine
+    time    : "time"                            ' timekeeping methods
+    io      : "io"                              ' I/O pin abstraction
 
 VAR
 
     word _ptat
-
     byte _ee_data[EE_SIZE]
 
 PUB Null{}
 ' This is not a top-level object
 
-PUB Start(SCL_PIN, SDA_PIN, I2C_HZ): okay
-' Start using "standard" Propeller I2C pins, and 100kHz
-    if lookdown(SCL_PIN: 0..31) and lookdown(SDA_PIN: 0..31)
-        if I2C_HZ =< core#I2C_MAX_FREQ
-            if okay := i2c.setupx(SCL_PIN, SDA_PIN, I2C_HZ)' start the I2C driver
-                time.msleep(3)
-                if i2c.present(core#EE_SLAVE_ADDR)
-                    readeeprom{}                        '   ...to read the EEPROM.
-                    time.msleep(5)
-                    i2c.setupx(SCL_PIN, SDA_PIN, I2C_HZ)' This time re-setup for the sensor
-                    time.msleep(5)
-                    if i2c.present (SLAVE_WR)           ' check device bus presence
-                        return okay
-
-    return FALSE                                ' something above failed
+PUB Startx(SCL_PIN, SDA_PIN, I2C_HZ): status
+' Start using custom I/O settings
+    if lookdown(SCL_PIN: 0..31) and lookdown(SDA_PIN: 0..31) and {
+}   I2C_HZ =< core#I2C_MAX_FREQ
+        if (status := i2c.init(SCL_PIN, SDA_PIN, I2C_HZ))
+            time.usleep(core#T_POR)
+            if i2c.present(core#EE_SLAVE_ADDR)
+                readeeprom{}                        '   ...to read the EEPROM.
+                time.msleep(5)
+                i2c.setupx(SCL_PIN, SDA_PIN, I2C_HZ)' This time re-setup for the sensor
+                time.msleep(5)
+                if i2c.present (SLAVE_WR)           ' check device bus presence
+                    return
+    ' if this point is reached, something above failed
+    ' Double check I/O pin assignments, connections, power
+    ' Lastly - make sure you have at least one free core/cog
+    return FALSE
 
 PUB Stop{}
 
-    i2c.terminate{}
+    i2c.deinit{}
 
 PUB Defaults{}
 ' Write osc trimming val extracted from EEPROM address $F7
@@ -172,7 +173,7 @@ PUB Dump_EE(ptr_buff)
 PUB EEPROM(state): curr_state
 ' Enable/disable the sensor's built-in EEPROM
 '   Valid values:
-'      TRUE (-1 or 1): Sensor's built-in EEPROM state (default)
+'      TRUE (-1 or 1): Sensor's built-in EEPROM enabled (default)
 '      FALSE: Sensor's built-in EEPROM disabled
 '   Any other value polls the chip and returns the current setting
 '   NOTE: Use with care! Driver will fail to restart if EEPROM is disabled.
@@ -371,7 +372,7 @@ PUB Reset(set): flag
     writereg(core#CONFIG, set)
 
 PRI readReg(reg_nr, nr_reads, rd_step, ptr_buff) | cmd_pkt[2]
-
+' Read nr_reads from device into ptr_buff
     cmd_pkt.byte[0] := SLAVE_WR
     cmd_pkt.byte[1] := core#CMD_READREG
     case reg_nr
@@ -389,15 +390,15 @@ PRI readReg(reg_nr, nr_reads, rd_step, ptr_buff) | cmd_pkt[2]
             return
 
     i2c.start{}
-    i2c.wr_block(@cmd_pkt, 5)
+    i2c.wrblock_lsbf(@cmd_pkt, 5)
 
     i2c.start{}
     i2c.write(SLAVE_RD)
-    i2c.rd_block(ptr_buff, nr_reads, TRUE)
+    i2c.rdblock_lsbf(ptr_buff, nr_reads, i2c#NAK)
     i2c.stop{}
 
 PRI writeReg(reg_nr, val) | cmd_pkt[2], nr_bytes
-
+' Write val to device
     cmd_pkt.byte[0] := SLAVE_WR
     case reg_nr
         core#CONFIG:
@@ -423,7 +424,7 @@ PRI writeReg(reg_nr, val) | cmd_pkt[2], nr_bytes
             return
 
     i2c.start{}
-    i2c.wr_block(@cmd_pkt, nr_bytes)
+    i2c.wrblock_lsbf(@cmd_pkt, nr_bytes)
     i2c.stop{}
 
 DAT
