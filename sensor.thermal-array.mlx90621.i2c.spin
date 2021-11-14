@@ -6,7 +6,7 @@
         16x4 IR array
     Copyright (c) 2021
     Started: Jan 4, 2018
-    Updated: Oct 12, 2021
+    Updated: Nov 14, 2021
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -181,7 +181,7 @@ PUB EEPROM(state): curr_state
     readreg(core#CONFIG, 2, 0, @curr_state)
     case ||(state)
         0, 1:
-            state := (1-||(state)) << core#EEPROMENA
+            state := (1-(||(state))) << core#EEPROMENA
         other:
             return (1-((curr_state >> core#EEPROMENA) & 1)) == 1
 
