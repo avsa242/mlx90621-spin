@@ -21,15 +21,18 @@ This is a P8X32A/Propeller, P2X8C4M64P/Propeller 2 driver object for Melexis's M
 
 P1/SPIN1:
 * spin-standard-library
-* P1/SPIN1: 1 extra core/cog for the PASM I2C driver
+* P1/SPIN1: 1 extra core/cog for the PASM I2C engine
 
 P2/SPIN2:
 * p2-spin-standard-library
 
 ## Compiler Compatibility
 
-* P1/SPIN1: OpenSpin (tested with 1.00.81)
-* P2/SPIN2: FastSpin (tested with 4.2.3-beta)
+* P1/SPIN1 OpenSpin (bytecode): Untested (deprecated)
+* P1/SPIN1 FlexSpin (bytecode): OK, tested with 5.9.7-beta
+* P1/SPIN1 FlexSpin (native): OK, tested with 5.9.7-beta
+* ~~P2/SPIN2 FlexSpin (nu-code): FTBFS, tested with 5.9.7-beta~~
+* P2/SPIN2 FlexSpin (native): OK, tested with 5.9.7-beta
 * ~~BST~~ (incompatible - no preprocessor)
 * ~~Propeller Tool~~ (incompatible - no preprocessor)
 * ~~PNut~~ (incompatible - no preprocessor)
@@ -40,7 +43,3 @@ P2/SPIN2:
 * The sensor has a built-in EEPROM, which unfortunately has the same (fixed) slave address as the EEPROM on most any Propeller 1-based board, so the sensor must be connected to pins other than the "standard" Propeller I2C pins 28 & 29, or the Propeller must be booted by some method other than EEPROM (doesn't apply to P2)
 * No correction is performed on the sensor data (i.e., Ta and To; ambient temperature and object temperature). Only the raw image data is collected and returned
 
-## TODO
-
-- [ ] Implement Ta/ambient temperature measurement
-- [ ] Implement To/object temperature measurement
