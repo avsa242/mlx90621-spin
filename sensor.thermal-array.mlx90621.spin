@@ -6,7 +6,7 @@
         16x4 IR array
     Copyright (c) 2022
     Started: Jan 4, 2018
-    Updated: Jan 1, 2022
+    Updated: Jul 10, 2022
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -19,45 +19,45 @@ CON
     DEF_HZ          = 100_000
     I2C_MAX_FREQ    = core#I2C_MAX_FREQ
 
-    EE_SIZE         = 256
-
+    { image dimensions }
     WIDTH           = 16
     HEIGHT          = 4
     XMAX            = WIDTH-1
     YMAX            = HEIGHT-1
 
-' I2C Fast Mode
+    { I2C Fast Mode+ }
     I2CFMODE_ENA    = 0
     I2CFMODE_DIS    = 1
 
-' Operation modes
+    { Operation modes }
     CONT            = 0
     SINGLE          = 1
 
-' Sensor power states
+    { Sensor power states }
     OFF             = 0
     ON              = 1
 
-' ADC reference settings
+    { ADC reference settings }
     ADCREF_HI       = 0
     ADCREF_LO       = 1
 
-' On-sensor EEPROM
+    { On-sensor EEPROM }
+    EE_SIZE         = 256
     EE_ENA          = 0
     EE_DIS          = 1
 
-' Offsets to sensor calibration data
-    EE_OFFS_VTH     = $DA
-    EE_OFFS_KT1     = $DC
-    EE_OFFS_KT2     = $DE
-    EE_OFFS_KT1SCL  = $D2
-    EE_OFFS_KT2SCL  = $D2
-    EE_OFFS_OSCTRIM = $F7
-    EE_OFFS_CFGH    = $F6
-    EE_OFFS_CFGL    = $F5
+    { Offsets to sensor calibration data }
+    EE_VTH25        = $DA
+    EE_KT1          = $DC
+    EE_KT2          = $DE
+    EE_KT1SCL       = $D2
+    EE_KT2SCL       = $D2
+    EE_OSCTRIM      = $F7
+    EE_CFGH         = $F6
+    EE_CFGL         = $F5
 
-    RAM_OFFS_PTAT   = $40
-    RAM_OFFS_CPIX   = $41
+    RAM_PTAT        = $40
+    RAM_COMPPIX     = $41
 
     CFG_CKBYTE      = $55
     OSC_CKBYTE      = $AA
@@ -65,16 +65,23 @@ CON
     W               = 0
     R               = 1
 
+    { u64 math }
+    H               = 0
+    L               = 1
+
 OBJ
 
-    core    : "core.con.mlx90621"               ' HW-specific constants
-    i2c     : "com.i2c"                         ' PASM I2C engine
-    time    : "time"                            ' timekeeping methods
+    core: "core.con.mlx90621"                   ' HW-specific constants
+    i2c : "com.i2c"                             ' PASM I2C engine
+    time: "time"                                ' timekeeping methods
+    u64 : "math.unsigned64"
 
 VAR
 
     word _ptat
     byte _ee_data[EE_SIZE]
+
+    long _res, _kt1scl, _kt2scl, _vth25, _kt1, _kt2, _adcres_bits
 
 PUB Null{}
 ' This is not a top-level object
@@ -105,7 +112,7 @@ PUB Stop{}
 
 PUB Defaults{}
 ' Write osc trimming val extracted from EEPROM address $F7
-    osctrim(_ee_data[EE_OFFS_OSCTRIM])
+    osctrim(_ee_data[EE_OSCTRIM])
     refreshrate(1)
     adcres(18)
     opmode(CONT)
@@ -142,6 +149,7 @@ PUB ADCRes(bits): curr_res
     readreg(core#CONFIG, 2, 0, @curr_res)
     case bits
         15..18:
+            _adcres_bits := (1 << (3-lookdownz(bits: 15, 16, 17, 18)) )
             bits := lookdownz(bits: 15, 16, 17, 18) << core#ADCRES
         other:
             curr_res := (curr_res >> core#ADCRES) & core#ADCRES_BITS
@@ -150,21 +158,52 @@ PUB ADCRes(bits): curr_res
     bits := ((curr_res & core#ADCRES_MASK) | bits)
     writereg(core#CONFIG, bits)
 
-'    _adc_res := 3-((_cfg_reg >> 4) & %11)   'Update the VAR used in calculations
-
-PUB AmbientTemp{}: ptat | Kt1, Kt2, Vth, Ta
-' Read Proportional To Ambient Temperature sensor   'XXX needs calc
+PUB AmbientTemp{}: ta | ptat, kt1, kt2, kt1scl, kt2scl, vth25, t1_64[2], t1_32, t2_64[2], t2_32, t3, t3sign
+' Read Proportional To Ambient Temperature sensor
+'   Returns: temperature, in hundredths of a degree Celsius
+    ptat := 0
     readreg(core#PTAT, 1, 0, @ptat)
-{    Kt1 := (_ee_data[$DD] << 8) | _ee_data[$DC]
-    Kt2 := (_ee_data[$DF] << 8) | _ee_data[$DE]
-    Vth := (_ee_data[$DB] << 8) | _ee_data[$DA]
-    Ta := Kt1 * Kt1
-    Ta := Ta - (4 * Kt2)
-    Ta := Ta * (Vth - PTAT_data)
-    Ta := ^^Ta
-    Ta := Ta + (-Kt1)
-    Ta := Ta / (Kt2 * 2)}
-    return
+
+    { gather coefficients from EEPROM image }
+    vth25 := _vth25
+    kt1 := _kt1
+    kt2 := _kt2
+    kt1scl := _kt1scl
+    kt2scl := _kt2scl
+
+    { scale Vth(25) down according to the current ADC resolution }
+    vth25 /= _adcres_bits
+
+    { scale down Kt1 and Kt2 using the EEPROM coefficients }
+    kt1 := (kt1 * 1_000) / (kt1scl * _adcres_bits)
+    kt2 := u64.multdiv(kt2, 1000000, (kt2scl * _adcres_bits))
+
+    { Ta = ( (-Kt1 + sqrt(Kt1^2 - 4Kt2 * (Vth(25) - PTAT)) ) / 2Kt2 ) + 25 }
+
+    u64.mult(@t1_64, kt1, kt1)              ' Kt1 ^ 2
+
+    t2_32 := (4 * kt2)                      ' 4KT2
+
+    t3 := (vth25 - ptat)                    ' (Vth(25) - PTAT)
+    if (t3 < 0)                             ' preserve sign for u64 math below
+        t3sign := -1
+    else
+        t3sign := 1
+
+    u64.mult(@t2_64, t2_32, ||(t3))         ' u64: 4Kt2 * abs(Vth(25) - PTAT)
+
+    if (t3sign == -1)
+        u64.dadd(@t1_64, t2_64[H], t2_64[L])' Kt1^2 - (Vth(25) - PTAT)
+    else
+        u64.dsub(@t1_64, t2_64[H], t2_64[L])
+    t1_32 := u64.div(t1_64[H], t1_64[L], 1_00)
+
+    t2_32 := ^^(t1_32) * 10                 ' sqrt(Kt1^2 - 4Kt2 * (Vth(25) - PTAT))
+
+    t3 := (-kt1 + t2_32)                    ' -Kt1 + sqrt(Kt1^2 - 4Kt2 * (Vth(25) - PTAT))
+
+    t2_32 := (kt2 * 2)                      ' 2Kt2
+    return u64.multdiv(t3, 100000, t2_32) + 25_00
 
 PUB Dump_EE(ptr_buff)
 ' Copy downloaded EEPROM image to ptr_buff
@@ -332,6 +371,21 @@ PUB ReadEEPROM{}: status | ackbit, tries
     until (ackbit == i2c#ACK)
     i2c.rdblock_lsbf(@_ee_data, EE_SIZE, i2c#NAK)
     i2c.stop{}
+
+    _adcres_bits := (1 << (3-lookdownz(adcres(-2): 15, 16, 17, 18)) )
+
+    bytemove(@_vth25, @_ee_data+EE_VTH25, 2)
+    bytemove(@_kt1, @_ee_data+EE_KT1, 2)
+    bytemove(@_kt1scl, @_ee_data+EE_KT1SCL, 1)
+    bytemove(@_kt2, @_ee_data+EE_KT2, 2)
+    bytemove(@_kt2scl, @_ee_data+EE_KT2SCL, 1)
+
+    _kt1scl := 1 << ((_kt1scl & $f0) >> 4)
+    _kt2scl := ( 1 << ((_kt2scl & $0f) + 10) )
+
+    ~~_kt1
+    ~~_kt2
+
     return TRUE
 
 PUB RefreshRate(rate): curr_rate
