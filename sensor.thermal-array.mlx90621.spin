@@ -47,14 +47,32 @@ CON
     EE_DIS          = 1
 
     { Offsets to sensor calibration data }
-    EE_VTH25        = $DA
-    EE_KT1          = $DC
-    EE_KT2          = $DE
-    EE_KT1SCL       = $D2
-    EE_KT2SCL       = $D2
-    EE_OSCTRIM      = $F7
-    EE_CFGH         = $F6
-    EE_CFGL         = $F5
+    EE_KS4          = $9E                       ' s8
+    EE_DELALPH      = $A2                       ' 
+    EE_KS_SCL       = $C0                       ' u4
+    EE_KS4EE        = $C4                       ' s8
+    EE_ACOM         = $D0                       ' s16
+    EE_ACP          = $D3                       ' s16
+    EE_BCP          = $D5                       ' s8
+    EE_ALPHCP       = $D6                       ' u16
+    EE_TGC          = $D8                       ' s8
+    EE_AISCL        = $D9                       ' [7:4], u4
+    EE_BISCL        = $D9                       ' [3:0], u4
+    EE_VTH25        = $DA                       ' s16
+    EE_KT1          = $DC                       ' s16
+    EE_KT2          = $DE                       ' s16
+    EE_KT1SCL       = $D2                       ' [7:4], u4
+    EE_KT2SCL       = $D2                       ' [3:0], u4
+    EE_ALPH0        = $E0                       ' u16
+    EE_ALPH0SCL     = $E2                       ' u8
+    EE_DELALSCL     = $E3                       ' u8
+    EE_EMIS         = $E4                       ' u16
+    EE_KSTA         = $E6                       ' s16
+    EE_OSCTRIM      = $F7                       ' u7
+    EE_CFG          = $F5                       ' u16
+
+    TA0             = 25_00
+    TWO20           = 1 << 20                   ' 2^20
 
     RAM_PTAT        = $40
     RAM_COMPPIX     = $41
