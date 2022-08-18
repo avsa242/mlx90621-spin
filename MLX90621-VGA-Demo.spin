@@ -6,7 +6,7 @@
         VGA display
     Copyright (c) 2022
     Started: Jun 27, 2020
-    Updated: Jul 10, 2022
+    Updated: Aug 18, 2022
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -45,7 +45,6 @@ OBJ
     mlx     : "sensor.thermal-array.mlx90621"
     vga     : "display.vga.bitmap.160x120"
     fnt     : "font.5x8"
-    int     : "string.integer"
 
 VAR
 
