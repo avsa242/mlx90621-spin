@@ -2,11 +2,10 @@
     --------------------------------------------
     Filename: sensor.thermal-array.mlx90621.spin
     Author: Jesse Burt
-    Description: Driver for the Melexis MLX90621
-        16x4 IR array
+    Description: Driver for the Melexis MLX90621 16x4 IR array
     Copyright (c) 2022
     Started: Jan 4, 2018
-    Updated: Jul 10, 2022
+    Updated: Sep 22, 2022
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -92,7 +91,7 @@ OBJ
     core: "core.con.mlx90621"                   ' HW-specific constants
     i2c : "com.i2c"                             ' PASM I2C engine
     time: "time"                                ' timekeeping methods
-    u64 : "math.unsigned64"
+    u64 : "math.unsigned64"                     ' unsigned 64-bit math routines
 
 VAR
 
@@ -101,10 +100,10 @@ VAR
 
     long _res, _kt1scl, _kt2scl, _vth25, _kt1, _kt2, _adcres_bits
 
-PUB Null{}
+PUB null{}
 ' This is not a top-level object
 
-PUB Startx(SCL_PIN, SDA_PIN, I2C_HZ): status
+PUB startx(SCL_PIN, SDA_PIN, I2C_HZ): status
 ' Start using custom I/O settings
     if lookdown(SCL_PIN: 0..63) and lookdown(SDA_PIN: 0..63) and {
 }   I2C_HZ =< core#I2C_MAX_FREQ
@@ -124,11 +123,14 @@ PUB Startx(SCL_PIN, SDA_PIN, I2C_HZ): status
     ' Lastly - make sure you have at least one free core/cog
     return FALSE
 
-PUB Stop{}
-
+PUB stop{}
+' Stop the driver
     i2c.deinit{}
+    longfill(@_res, 0, 7)
+    bytefill(@_ee_data, 0, EE_SIZE)
+    _ptat := 0
 
-PUB Defaults{}
+PUB defaults{}
 ' Write osc trimming val extracted from EEPROM address $F7
     osctrim(_ee_data[EE_OSCTRIM])
     refreshrate(1)
@@ -141,7 +143,7 @@ PUB Defaults{}
     reset(TRUE)
     time.msleep(5)
 
-PUB ADCReference(mode): curr_mode
+PUB adcreference(mode): curr_mode
 ' Set ADC reference high, low
 '   Valid values:
 '      ADCREF_HI (0) - ADC High reference enabled
@@ -160,7 +162,7 @@ PUB ADCReference(mode): curr_mode
 
 'TODO: Call Re-cal method here
 
-PUB ADCRes(bits): curr_res
+PUB adcres(bits): curr_res
 ' Set ADC resolution, in bits
 '   Valid values: 15..18 (default: 18)
 '   Any other value polls the chip and returns the current setting
@@ -176,7 +178,7 @@ PUB ADCRes(bits): curr_res
     bits := ((curr_res & core#ADCRES_MASK) | bits)
     writereg(core#CONFIG, bits)
 
-PUB AmbientTemp{}: ta | ptat, kt1, kt2, kt1scl, kt2scl, vth25, t1_64[2], t1_32, t2_64[2], t2_32, t3, t3sign
+PUB ambienttemp{}: ta | ptat, kt1, kt2, kt1scl, kt2scl, vth25, t1_64[2], t1_32, t2_64[2], t2_32, t3, t3sign
 ' Read Proportional To Ambient Temperature sensor
 '   Returns: temperature, in hundredths of a degree Celsius
     ptat := 0
@@ -223,12 +225,12 @@ PUB AmbientTemp{}: ta | ptat, kt1, kt2, kt1scl, kt2scl, vth25, t1_64[2], t1_32, 
     t2_32 := (kt2 * 2)                      ' 2Kt2
     return u64.multdiv(t3, 100000, t2_32) + 25_00
 
-PUB Dump_EE(ptr_buff)
+PUB dump_ee(ptr_buff)
 ' Copy downloaded EEPROM image to ptr_buff
 ' NOTE: This buffer must be at least 256 bytes
     bytemove(ptr_buff, @_ee_data, EE_SIZE)
 
-PUB EEPROM(state): curr_state
+PUB eeprom(state): curr_state
 ' Enable/disable the sensor's built-in EEPROM
 '   Valid values:
 '      TRUE (-1 or 1): Sensor's built-in EEPROM enabled (default)
@@ -246,7 +248,7 @@ PUB EEPROM(state): curr_state
     state := ((curr_state & core#EEPROMENA_MASK) | state)
     writereg(core#CONFIG, state)
 
-PUB GetColumn(ptr_buff, col) | tmpframe[2], tmp, offs, line
+PUB getcolumn(ptr_buff, col) | tmpframe[2], tmp, offs, line
 ' Read a single column of pixels from the sensor into ptr_buff
 '   NOTE This buffer must be at least 4 longs
     if not lookdown(col: 0..15)
@@ -257,14 +259,14 @@ PUB GetColumn(ptr_buff, col) | tmpframe[2], tmp, offs, line
         offs := (col * 4) + line
         long[ptr_buff][tmp] := ~~tmpframe.word[offs]
 
-PUB GetFrame(ptr_buff) | tmpframe[32], offs
+PUB getframe(ptr_buff) | tmpframe[32], offs
 ' Read entire frame from sensor and store it in buffer at ptr_buff
 '   NOTE: This buffer must be at least 64 longs
     readreg(0, 64, 1, @tmpframe)
     repeat offs from 0 to 63
         long[ptr_buff][offs] := ~~tmpframe.word[offs]
 
-PUB GetFrameExt(ptr_buff) | tmpframe[33], offs, line, col
+PUB getframeext(ptr_buff) | tmpframe[33], offs, line, col
 ' Read entire frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at ptr_buff
 '   NOTE: This buffer must be at least 66 longs
     readreg(0, 66, 1, @tmpframe)
@@ -272,7 +274,7 @@ PUB GetFrameExt(ptr_buff) | tmpframe[33], offs, line, col
         long[ptr_buff][offs] := ~~tmpframe.word[offs]
     _PTAT := tmpframe[RAM_OFFS_PTAT]            ' Get PTAT data
 
-PUB GetLine(ptr_buff, line) | tmpframe[8], offs, col
+PUB getline(ptr_buff, line) | tmpframe[8], offs, col
 ' Read a single line of pixels from the sensor into ptr_buff
 '   NOTE: This buffer must be at least 16 longs
     if not lookdown(line: 0..3)
@@ -282,7 +284,7 @@ PUB GetLine(ptr_buff, line) | tmpframe[8], offs, col
         offs := (col * 4) + line
         long[ptr_buff][offs] := ~~tmpframe.word[offs]
 
-PUB GetPixel(ptr_buff, col, line): pix_word | tmpframe, offs
+PUB getpixel(ptr_buff, col, line): pix_word | tmpframe, offs
 ' Read a single pixel from the sensor into ptr_buff
 '   Returns: pixel value
 '   NOTE: This buffer must be at least 1 long
@@ -301,13 +303,13 @@ PUB GetPixel(ptr_buff, col, line): pix_word | tmpframe, offs
     readreg(offs, 1, 0, @tmpframe)
     long[ptr_buff][offs] := pix_word := ~~tmpframe.word[0]
 
-PUB Measure{}
+PUB measure{}
 ' Perform measurement, when OpMode is set to SINGLE
 '   NOTE: This method waits/blocks while a measurement is ongoing
     writereg(core#CMD_STEP_MEASURE, 0)
     repeat while measuring{}
 
-PUB Measuring{}: flag
+PUB measuring{}: flag
 ' Flag indicating a measurement is running
 '   Returns:
 '       FALSE (0): No IR measurement running
@@ -316,7 +318,7 @@ PUB Measuring{}: flag
     readreg(core#CONFIG, 2, 0, @flag)
     return ((flag >> core#MEASURING) & 1) == 1
 
-PUB OpMode(mode): curr_mode
+PUB opmode(mode): curr_mode
 ' Set measurement mode
 '   Valid values:
 '     *CONT (0) - Continuous measurement mode
@@ -333,7 +335,7 @@ PUB OpMode(mode): curr_mode
     mode := ((curr_mode & core#MEASMODE_MASK) | mode)
     writereg(core#CONFIG, mode)
 
-PUB OSCTrim(val): curr_val
+PUB osctrim(val): curr_val
 ' Set Oscillator Trim value
 '   Valid values: 0..127 (default: 0)
 '   Any other value polls the chip and returns the current setting
@@ -346,7 +348,7 @@ PUB OSCTrim(val): curr_val
             readreg(core#OSC_TRIM, 1, 0, @curr_val)
             return curr_val & core#OSC_TRIM_MASK
 
-PUB Powered(state): curr_state
+PUB powered(state): curr_state
 ' Power on sensor
 '   Valid values:
 '      *FALSE (0) - Sleep
@@ -363,7 +365,7 @@ PUB Powered(state): curr_state
     state := ((curr_state & core#OPMODE_MASK) | state)
     writereg(core#CONFIG, state)
 
-PUB ReadEEPROM{}: status | ackbit, tries
+PUB readeeprom{}: status | ackbit, tries
 ' Read sensor EEPROM contents into RAM
 '   Returns:
 '       TRUE (-1): success
@@ -406,7 +408,7 @@ PUB ReadEEPROM{}: status | ackbit, tries
 
     return TRUE
 
-PUB RefreshRate(rate): curr_rate
+PUB refreshrate(rate): curr_rate
 ' Set sensor refresh rate
 '   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2 (default: 1)
 '   Any other value polls the chip and returns the current setting
@@ -424,7 +426,7 @@ PUB RefreshRate(rate): curr_rate
     rate := ((curr_rate & core#REFRATE_MASK) | rate) & core#CONFIG_MASK
     writereg(core#CONFIG, rate)
 
-PUB Reset(set): flag    ' XXX should be renamed - doesn't do what 'Reset()' normally does
+PUB reset(set): flag    ' XXX should be renamed - doesn't do what 'Reset()' normally does
 ' Set sensor reset flag
 '   Valid values: TRUE (-1 or 1)
 '   Any other value polls the chip and returns the current setting
@@ -440,7 +442,7 @@ PUB Reset(set): flag    ' XXX should be renamed - doesn't do what 'Reset()' norm
     set := ((flag & core#RESET_MASK) | set)
     writereg(core#CONFIG, set)
 
-PRI I2CFM(mode): curr_mode
+PRI i2cfm(mode): curr_mode
 ' Enable I2C Fast Mode+
 '   Valid values:
 '     *TRUE (-1 or 1): Max I2C bus speed 1000kbit/sec
@@ -458,7 +460,7 @@ PRI I2CFM(mode): curr_mode
     mode := ((curr_mode & core#I2CFMP_MASK) | mode)
     writereg(core#CONFIG, curr_mode)
 
-PRI readReg(reg_nr, nr_reads, rd_step, ptr_buff) | cmd_pkt[2]
+PRI readreg(reg_nr, nr_reads, rd_step, ptr_buff) | cmd_pkt[2]
 ' Read nr_reads from device into ptr_buff
     cmd_pkt.byte[0] := SLAVE_WR
     cmd_pkt.byte[1] := core#CMD_READREG
@@ -484,7 +486,7 @@ PRI readReg(reg_nr, nr_reads, rd_step, ptr_buff) | cmd_pkt[2]
     i2c.rdblock_lsbf(ptr_buff, nr_reads, i2c#NAK)
     i2c.stop{}
 
-PRI writeReg(reg_nr, val) | cmd_pkt[2], nr_bytes
+PRI writereg(reg_nr, val) | cmd_pkt[2], nr_bytes
 ' Write val to device
     cmd_pkt.byte[0] := SLAVE_WR
     case reg_nr
@@ -516,22 +518,21 @@ PRI writeReg(reg_nr, val) | cmd_pkt[2], nr_bytes
 
 DAT
 {
-    --------------------------------------------------------------------------------------------------------
-    TERMS OF USE: MIT License
+Copyright 2022 Jesse Burt
 
-    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
-    associated documentation files (the "Software"), to deal in the Software without restriction, including
-    without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
-    following conditions:
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-    The above copyright notice and this permission notice shall be included in all copies or substantial
-    portions of the Software.
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
 
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
-    LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-    IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-    WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-    SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-    --------------------------------------------------------------------------------------------------------
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 }
+
