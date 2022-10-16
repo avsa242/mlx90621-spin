@@ -6,7 +6,7 @@
         VGA display
     Copyright (c) 2022
     Started: Jun 27, 2020
-    Updated: Aug 18, 2022
+    Updated: Oct 16, 2022
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -39,7 +39,7 @@ CON
 
 OBJ
 
-    cfg     : "core.con.boardcfg.quickstart-hib"
+    cfg     : "boardcfg.quickstart-hib"
     ser     : "com.serial.terminal.ansi"
     time    : "time"
     mlx     : "sensor.thermal-array.mlx90621"
@@ -59,7 +59,7 @@ VAR
 
     byte _framebuffer[BUFFSZ]
     byte _palette[64]
-    byte _mlx_adcres, _mlx_adcref
+    byte _mlx_adc_res, _mlx_adcref
     byte _invert_x, _col_scl
     byte _hotspot_mark
 
@@ -71,7 +71,7 @@ PUB Main{}
     repeat
         if _settings_changed
             updatesettings{}
-        mlx.getframe(@_ir_frame)
+        mlx.get_frame(@_ir_frame)
         drawframe(_fx, _fy, _fw, _fh)
 
 PUB DrawFrame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixex, pixey, maxx, maxy, maxp
@@ -116,19 +116,19 @@ PUB DrawVScale(x, y, ht) | idx, color, scl_width, bottom, top, range
 PUB UpdateSettings{} | col, row, reftmp
 ' Settings have been changed by the user - update the sensor and the
 '   displayed settings
-    mlx.adcres(_mlx_adcres)                     ' Update sensor with current
-    mlx.refreshrate(_mlx_refrate)               '   settings
-    mlx.adcreference(_mlx_adcref)
+    mlx.adc_res(_mlx_adc_res)                     ' Update sensor with current
+    mlx.refresh_rate(_mlx_refrate)               '   settings
+    mlx.adc_ref(_mlx_adcref)
 
-    reftmp := mlx.adcreference(-2)              ' read from sensor for display
+    reftmp := mlx.adc_ref(-2)              ' read from sensor for display
     col := 0
     row := (vga.textrows{}-1) - 5               ' Position at screen bottom
     vga.fgcolor(vga#MAX_COLOR)
     vga.position(col, row)
 
     vga.printf1(string("X-axis invert: %s\n"), lookupz(_invert_x: string("No "), string("Yes")))
-    vga.printf1(string("FPS: %dHz   \n"), mlx.refreshrate(-2))
-    vga.printf1(string("ADC: %dbits\n"), mlx.adcres(-2))
+    vga.printf1(string("FPS: %dHz   \n"), mlx.refresh_rate(-2))
+    vga.printf1(string("ADC: %dbits\n"), mlx.adc_res(-2))
     vga.printf1(string("ADC reference: %s\n"), lookupz(reftmp: string("High"), string("Low  ")))
 
     _fx := CENTERX - ((_fw * 16) / 2)           ' Approx center of screen
@@ -143,9 +143,9 @@ PUB cog_keyInput{} | cmd
         repeat until cmd := ser.charin{}
         case cmd
             "A":                                ' ADC resolution (bits)
-                _mlx_adcres := (_mlx_adcres + 1) <# 18
+                _mlx_adc_res := (_mlx_adc_res + 1) <# 18
             "a":
-                _mlx_adcres := (_mlx_adcres - 1) #> 15
+                _mlx_adc_res := (_mlx_adc_res - 1) #> 15
             "C":                                ' Color scaling/contrast
                 _col_scl := (_col_scl + 1) <# 16' ++
             "c":
@@ -184,7 +184,7 @@ PUB Setup{}
     setuppalette{}
     vga.startx(VGA_PINGROUP, WIDTH, HEIGHT, @_framebuffer)
         ser.strln(string("VGA 8bpp driver started"))
-        vga.fontaddress(fnt.baseaddr{})
+        vga.fontaddress(fnt.ptr{})
         vga.fontscale(1)
         vga.fontsize(6, 8)
         vga.clear{}
@@ -193,7 +193,7 @@ PUB Setup{}
         ser.strln(string("MLX90621 driver started"))
         mlx.defaults{}
         mlx.opmode(mlx#CONT)
-        _mlx_adcres := 18                       ' Initial sensor settings
+        _mlx_adc_res := 18                       ' Initial sensor settings
         _mlx_refrate := 32
         _mlx_adcref := 1
     else

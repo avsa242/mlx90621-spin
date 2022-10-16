@@ -110,7 +110,7 @@ PUB startx(SCL_PIN, SDA_PIN, I2C_HZ): status
         if (status := i2c.init(SCL_PIN, SDA_PIN, core#EE_MAX_FREQ))
             time.usleep(core#T_POR)
             if i2c.present(core#EE_SLAVE_ADDR)  ' first start I2C engine
-                if readeeprom{}                 '   to read the EEPROM
+                if (rd_eeprom(0))               '   to read the EEPROM
                     time.msleep(5)
                     i2c.deinit{}
                                                 ' now re-setup for the sensor
@@ -132,18 +132,18 @@ PUB stop{}
 
 PUB defaults{}
 ' Write osc trimming val extracted from EEPROM address $F7
-    osctrim(_ee_data[EE_OSCTRIM])
-    refreshrate(1)
-    adcres(18)
+    osc_trim(_ee_data[EE_OSCTRIM])
+    refresh_rate(1)
+    adc_res(18)
     opmode(CONT)
     powered(TRUE)
     i2cfm(TRUE)
-    eeprom(TRUE)
-    adcreference(ADCREF_LO)
+    eeprom_ena(TRUE)
+    adc_ref(ADCREF_LO)
     reset(TRUE)
     time.msleep(5)
 
-PUB adcreference(mode): curr_mode
+PUB adc_ref(mode): curr_mode
 ' Set ADC reference high, low
 '   Valid values:
 '      ADCREF_HI (0) - ADC High reference enabled
@@ -162,7 +162,7 @@ PUB adcreference(mode): curr_mode
 
 'TODO: Call Re-cal method here
 
-PUB adcres(bits): curr_res
+PUB adc_res(bits): curr_res
 ' Set ADC resolution, in bits
 '   Valid values: 15..18 (default: 18)
 '   Any other value polls the chip and returns the current setting
@@ -178,7 +178,7 @@ PUB adcres(bits): curr_res
     bits := ((curr_res & core#ADCRES_MASK) | bits)
     writereg(core#CONFIG, bits)
 
-PUB ambienttemp{}: ta | ptat, kt1, kt2, kt1scl, kt2scl, vth25, t1_64[2], t1_32, t2_64[2], t2_32, t3, t3sign
+PUB amb_temp{}: ta | ptat, kt1, kt2, kt1scl, kt2scl, vth25, t1_64[2], t1_32, t2_64[2], t2_32, t3, t3sign
 ' Read Proportional To Ambient Temperature sensor
 '   Returns: temperature, in hundredths of a degree Celsius
     ptat := 0
@@ -225,12 +225,7 @@ PUB ambienttemp{}: ta | ptat, kt1, kt2, kt1scl, kt2scl, vth25, t1_64[2], t1_32, 
     t2_32 := (kt2 * 2)                      ' 2Kt2
     return u64.multdiv(t3, 100000, t2_32) + 25_00
 
-PUB dump_ee(ptr_buff)
-' Copy downloaded EEPROM image to ptr_buff
-' NOTE: This buffer must be at least 256 bytes
-    bytemove(ptr_buff, @_ee_data, EE_SIZE)
-
-PUB eeprom(state): curr_state
+PUB eeprom_ena(state): curr_state
 ' Enable/disable the sensor's built-in EEPROM
 '   Valid values:
 '      TRUE (-1 or 1): Sensor's built-in EEPROM enabled (default)
@@ -248,10 +243,10 @@ PUB eeprom(state): curr_state
     state := ((curr_state & core#EEPROMENA_MASK) | state)
     writereg(core#CONFIG, state)
 
-PUB getcolumn(ptr_buff, col) | tmpframe[2], tmp, offs, line
+PUB get_column(ptr_buff, col) | tmpframe[2], tmp, offs, line
 ' Read a single column of pixels from the sensor into ptr_buff
 '   NOTE This buffer must be at least 4 longs
-    if not lookdown(col: 0..15)
+    ifnot lookdown(col: 0..15)
         return
 
     readreg(col * 4, 4, 1, @tmpframe)
@@ -259,14 +254,14 @@ PUB getcolumn(ptr_buff, col) | tmpframe[2], tmp, offs, line
         offs := (col * 4) + line
         long[ptr_buff][tmp] := ~~tmpframe.word[offs]
 
-PUB getframe(ptr_buff) | tmpframe[32], offs
+PUB get_frame(ptr_buff) | tmpframe[32], offs
 ' Read entire frame from sensor and store it in buffer at ptr_buff
 '   NOTE: This buffer must be at least 64 longs
     readreg(0, 64, 1, @tmpframe)
     repeat offs from 0 to 63
         long[ptr_buff][offs] := ~~tmpframe.word[offs]
 
-PUB getframeext(ptr_buff) | tmpframe[33], offs, line, col
+PUB get_frame_ext(ptr_buff) | tmpframe[33], offs, line, col
 ' Read entire frame, as well as PTAT and compensation pixel data from sensor and stores it in buffer at ptr_buff
 '   NOTE: This buffer must be at least 66 longs
     readreg(0, 66, 1, @tmpframe)
@@ -274,7 +269,7 @@ PUB getframeext(ptr_buff) | tmpframe[33], offs, line, col
         long[ptr_buff][offs] := ~~tmpframe.word[offs]
     _PTAT := tmpframe[RAM_OFFS_PTAT]            ' Get PTAT data
 
-PUB getline(ptr_buff, line) | tmpframe[8], offs, col
+PUB get_line(ptr_buff, line) | tmpframe[8], offs, col
 ' Read a single line of pixels from the sensor into ptr_buff
 '   NOTE: This buffer must be at least 16 longs
     if not lookdown(line: 0..3)
@@ -284,7 +279,7 @@ PUB getline(ptr_buff, line) | tmpframe[8], offs, col
         offs := (col * 4) + line
         long[ptr_buff][offs] := ~~tmpframe.word[offs]
 
-PUB getpixel(ptr_buff, col, line): pix_word | tmpframe, offs
+PUB get_pixel(ptr_buff, col, line): pix_word | tmpframe, offs
 ' Read a single pixel from the sensor into ptr_buff
 '   Returns: pixel value
 '   NOTE: This buffer must be at least 1 long
@@ -335,7 +330,7 @@ PUB opmode(mode): curr_mode
     mode := ((curr_mode & core#MEASMODE_MASK) | mode)
     writereg(core#CONFIG, mode)
 
-PUB osctrim(val): curr_val
+PUB osc_trim(val): curr_val
 ' Set Oscillator Trim value
 '   Valid values: 0..127 (default: 0)
 '   Any other value polls the chip and returns the current setting
@@ -365,8 +360,9 @@ PUB powered(state): curr_state
     state := ((curr_state & core#OPMODE_MASK) | state)
     writereg(core#CONFIG, state)
 
-PUB readeeprom{}: status | ackbit, tries
+PUB rd_eeprom(ptr_buff): status | ackbit, tries
 ' Read sensor EEPROM contents into RAM
+'   ptr_buff: buffer to copy EEPROM image to (0 to ignore; only the internal copy will be used)
 '   Returns:
 '       TRUE (-1): success
 '       FALSE (0): failure
@@ -392,7 +388,7 @@ PUB readeeprom{}: status | ackbit, tries
     i2c.rdblock_lsbf(@_ee_data, EE_SIZE, i2c#NAK)
     i2c.stop{}
 
-    _adcres_bits := (1 << (3-lookdownz(adcres(-2): 15, 16, 17, 18)) )
+    _adcres_bits := (1 << (3-lookdownz(adc_res(-2): 15, 16, 17, 18)) )
 
     bytemove(@_vth25, @_ee_data+EE_VTH25, 2)
     bytemove(@_kt1, @_ee_data+EE_KT1, 2)
@@ -405,10 +401,11 @@ PUB readeeprom{}: status | ackbit, tries
 
     ~~_kt1
     ~~_kt2
-
+    if (ptr_buff)
+        bytemove(ptr_buff, @_ee_data, EE_SIZE)
     return TRUE
 
-PUB refreshrate(rate): curr_rate
+PUB refresh_rate(rate): curr_rate
 ' Set sensor refresh rate
 '   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2 (default: 1)
 '   Any other value polls the chip and returns the current setting
