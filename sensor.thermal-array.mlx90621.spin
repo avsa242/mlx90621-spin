@@ -238,15 +238,12 @@ PUB frame_rate(rate): curr_rate
     curr_rate := 0
     readreg(core#CONFIG, 2, 0, @curr_rate)
     case rate
-        512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0:
-            rate := lookdownz(rate: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, 2, {
-}                                   1, 0)
+        0..512:
+            rate := 15 - >|(rate)               ' log2(rate) converted to reg value
         other:
             curr_rate &= core#REFRATE_BITS
-            return lookupz(curr_rate: 512, 512, 512, 512, 512, 512, 256, 128, 64, 32, 16, 8, 4, {
-}                                     2, 1, 0)
-
-    rate := ((curr_rate & core#REFRATE_MASK) | rate) & core#CONFIG_MASK
+            return (0 #> |<(13-curr_rate))      ' reg value converted to power of 2
+    rate := ((curr_rate & core#REFRATE_MASK) | rate)
     writereg(core#CONFIG, rate)
 
 PUB get_column(ptr_buff, col) | tmpframe[2], tmp, offs, line
