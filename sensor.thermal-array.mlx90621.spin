@@ -152,6 +152,7 @@ PUB adc_ref(mode): curr_mode
 '       ADCREF_LO (1) - ADC Low reference enabled (default)
 '   Any other value polls the chip and returns the current setting
 ' NOTE: Re-calibration must be done after this method is called
+    curr_mode := 0
     readreg(core#CONFIG, 2, 0, @curr_mode)
     case mode
         ADCREF_HI, ADCREF_LO:
@@ -217,6 +218,7 @@ PUB eeprom_ena(state): curr_state
 '   Any other value polls the chip and returns the current setting
 '   NOTE: Use with care! Driver will fail to restart if EEPROM is disabled.
 '       Cycle power in this case.
+    curr_state := 0
     readreg(core#CONFIG, 2, 0, @curr_state)
     case ||(state)
         0, 1:
@@ -233,6 +235,7 @@ PUB frame_rate(rate): curr_rate
 '   Valid values are 0, for 0.5Hz, or 1 to 512 in powers of 2 (default: 1)
 '   Any other value polls the chip and returns the current setting
 '   NOTE: Higher rates will yield noisier images
+    curr_rate := 0
     readreg(core#CONFIG, 2, 0, @curr_rate)
     case rate
         512, 256, 128, 64, 32, 16, 8, 4, 2, 1, 0:
@@ -331,6 +334,7 @@ PUB opmode(mode): curr_mode
 '       SINGLE (1) - Single-measurement mode only
 '   Any other value polls the chip and returns the current setting
 '   NOTE: In SINGLE mode, measurements must be triggered manually by calling measure()
+    curr_mode := 0
     readreg(core#CONFIG, 2, 0, @curr_mode)
     case mode
         CONT, SINGLE:
@@ -351,6 +355,7 @@ PUB osc_trim(val): curr_val
             val &= core#OSC_TRIM_MASK
             writereg(core#OSC_TRIM, curr_val)
         other:
+            curr_val := 0
             readreg(core#OSC_TRIM, 1, 0, @curr_val)
             return curr_val & core#OSC_TRIM_MASK
 
@@ -360,6 +365,7 @@ PUB powered(state): curr_state
 '       FALSE (0) - Sleep (default)
 '       TRUE (-1 or 1) - Power on
 '   Any other value polls the chip and returns the current setting
+    curr_state := 0
     readreg(core#CONFIG, 2, 0, @curr_state)
     case ||(state)
         0, 1:
@@ -421,6 +427,7 @@ PUB temp_adc_res(bits): curr_res
 ' Set ADC resolution, in bits
 '   Valid values: 15..18 (default: 18)
 '   Any other value polls the chip and returns the current setting
+    curr_res := 0
     readreg(core#CONFIG, 2, 0, @curr_res)
     case bits
         15..18:
@@ -441,6 +448,7 @@ PRI i2cfm(mode): curr_mode
 '   NOTE: This is independent of, and has no effect on what speed the driver
 '   was started with.
 '   Any other value polls the chip and returns the current setting
+    curr_mode := 0
     readreg(core#CONFIG, 2, 0, @curr_mode)
     case ||(mode)
         0, 1:
