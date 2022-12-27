@@ -5,7 +5,7 @@
     Description: Driver for the Melexis MLX90621 16x4 IR array
     Copyright (c) 2022
     Started: Jan 4, 2018
-    Updated: Nov 26, 2022
+    Updated: Dec 27, 2022
     See end of file for terms of use.
     --------------------------------------------
 }
@@ -482,7 +482,7 @@ PRI writereg(reg_nr, val) | cmd_pkt[2], nr_bytes
     cmd_pkt.byte[0] := SLAVE_WR
     case reg_nr
         core#CONFIG:
-            val |= core#RESET                   ' RESET bit must be set when updating CONFIG
+            val |= core#RESET_UPD               ' RESET bit must be set when updating CONFIG
             cmd_pkt.byte[1] := core#CMD_WRITEREG_CFG
             cmd_pkt.byte[2] := val.byte[0] - CFG_CKBYTE
             cmd_pkt.byte[3] := val.byte[0]
