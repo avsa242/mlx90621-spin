@@ -5,9 +5,11 @@ This is a P8X32A/Propeller, P2X8C4M64P/Propeller 2 driver object for Melexis's M
 
 **IMPORTANT**: This software is meant to be used with the [spin-standard-library](https://github.com/avsa242/spin-standard-library) (P8X32A) or [p2-spin-standard-library](https://github.com/avsa242/p2-spin-standard-library) (P2X8C4M64P). Please install the applicable library first before attempting to use this code, otherwise you will be missing several files required to build the project.
 
+
 ## Videos
 
 * [P2 VGA-based demo](https://youtu.be/9pcsTAazFpA)
+
 
 ## Salient Features
 
@@ -16,6 +18,7 @@ This is a P8X32A/Propeller, P2X8C4M64P/Propeller 2 driver object for Melexis's M
 * Continuous or step measure mode
 * Set sensor ADC resolution (15..18 bits)
 * Set sensor framerate (0.5..512Hz)
+
 
 ## Requirements
 
@@ -26,18 +29,16 @@ P1/SPIN1:
 P2/SPIN2:
 * p2-spin-standard-library
 
+
 ## Compiler Compatibility
 
-| Processor | Language | Compiler               | Backend     | Status                |
-|-----------|----------|------------------------|-------------|-----------------------|
-| P1        | SPIN1    | FlexSpin (5.9.14-beta) | Bytecode    | OK                    |
-| P1        | SPIN1    | FlexSpin (5.9.14-beta) | Native code | OK                    |
-| P1        | SPIN1    | OpenSpin (1.00.81)     | Bytecode    | Untested (deprecated) |
-| P2        | SPIN2    | FlexSpin (5.9.14-beta) | NuCode      | Untested              |
-| P2        | SPIN2    | FlexSpin (5.9.14-beta) | Native code | OK                    |
-| P1        | SPIN1    | Brad's Spin Tool (any) | Bytecode    | Unsupported           |
-| P1, P2    | SPIN1, 2 | Propeller Tool (any)   | Bytecode    | Unsupported           |
-| P1, P2    | SPIN1, 2 | PNut (any)             | Bytecode    | Unsupported           |
+| Processor | Language | Compiler               | Backend      | Status                |
+|-----------|----------|------------------------|--------------|-----------------------|
+| P1        | SPIN1    | FlexSpin (6.8.0)       | Bytecode     | OK                    |
+| P1        | SPIN1    | FlexSpin (6.8.0)       | Native/PASM  | OK                    |
+| P2        | SPIN2    | FlexSpin (6.8.0)       | NuCode       | Build OK              |
+| P2        | SPIN2    | FlexSpin (6.8.0)       | Native/PASM2 | OK                    |
+
 
 ## Limitations
 
