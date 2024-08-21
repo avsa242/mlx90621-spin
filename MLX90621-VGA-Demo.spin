@@ -4,31 +4,28 @@
     Description:    Demo of the MLX90621 driver using a VGA display
     Author:         Jesse Burt
     Started:        Jun 27, 2020
-    Updated:        Jan 25, 2024
+    Updated:        Aug 21, 2024
     Copyright (c) 2024 - See end of file for terms of use.
 ---------------------------------------------------------------------------------------------------
 }
+
 CON
 
-    _clkmode        = cfg._clkmode
-    _xinfreq        = cfg._xinfreq
-
-' -- User-modifiable constants
-' MLX90621
-    SCL_PIN         = 16
-    SDA_PIN         = 17
-    I2C_FREQ        = 1_000_000
-' --
+    _clkmode    = cfg._clkmode
+    _xinfreq    = cfg._xinfreq
 
 
 OBJ
 
     cfg:    "boardcfg.quickstart-hib"
+    time:   "time"
     fnt:    "font.5x8"
     ser:    "com.serial.terminal.ansi" | SER_BAUD=115_200
-    mlx:    "sensor.thermal-array.mlx90621"
+    mlx:    "sensor.thermal-array.mlx90621" | SCL=0, SDA=1, I2C_FREQ=1_000_000
     vga:    "display.vga.bitmap.160x120" | PIN_GRP=0    { 0 .. 3 }
-    time:   "time"
+
+    'NOTE: The sensor can't be put on the same I2C bus as the Propeller's EEPROM, as the sensor
+    '   also contains a built-in EEPROM with the same (unchangeable) I2C address.
 
 
 VAR
@@ -54,7 +51,7 @@ PUB main()
     draw_vscale(vga.XMAX-5, 0, vga.YMAX)
 
     repeat
-        if (_settings_changed)
+        if ( _settings_changed )
             update_settings()
         mlx.get_frame(@_ir_frame)
         draw_frame(_fx, _fy, _fw, _fh)
@@ -62,10 +59,10 @@ PUB main()
 
 PUB draw_frame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pixex, pixey, maxx, maxy, maxp
 ' Draw the thermal image
-    vga.wait_vsync()                             ' wait for vertical sync
+    vga.wait_vsync()                            ' wait for vertical sync
     repeat y from 0 to mlx.YMAX
         repeat x from 0 to mlx.XMAX
-            if (_invert_x)                      ' Invert X display if set
+            if ( _invert_x )                    ' Invert X display if set
                 ir_offset := ((mlx.XMAX-x) * 4) + y
             else
                 ir_offset := (x * 4) + y
@@ -76,13 +73,13 @@ PUB draw_frame(fx, fy, pixw, pixh) | x, y, color_c, ir_offset, pixsx, pixsy, pix
             pixex := pixsx + pixw
             pixey := pixsy + pixh
 
-            if (_ir_frame[ir_offset] > maxp)    ' Check if this is the hottest
+            if ( _ir_frame[ir_offset] > maxp )  ' Check if this is the hottest
                 maxp := _ir_frame[ir_offset]    '   spot in the image
                 maxx := pixsx
                 maxy := pixsy
             vga.box(pixsx, pixsy, pixex, pixey, color_c, TRUE)
 
-    if (_hotspot_mark)                          ' Mark hotspot
+    if ( _hotspot_mark )                        ' Mark hotspot
         ' white box
 '        vga.box(maxx, maxy, maxx+pixw, maxy+pixh, vga.MAX_COLOR, false)
 
@@ -109,15 +106,15 @@ PUB update_settings() | col, row, reftmp
     mlx.refresh_rate(_mlx_refrate)              '   settings
     mlx.adc_ref(_mlx_adcref)
 
-    reftmp := mlx.adc_ref(-2)                   ' read from sensor for display
+    reftmp := mlx.adc_ref()                     ' read from sensor for display
     col := 0
     row := (vga.textrows()-1) - 5               ' Position at screen bottom
     vga.fgcolor(vga.MAX_COLOR)
     vga.pos_xy(col, row)
 
     vga.printf1(@"X-axis invert: %s\n\r", lookupz(_invert_x: @"No ", @"Yes"))
-    vga.printf1(@"FPS: %dHz   \n\r", mlx.refresh_rate(-2))
-    vga.printf1(@"ADC: %dbits\n\r", mlx.temp_adc_res(-2))
+    vga.printf1(@"FPS: %dHz   \n\r", mlx.refresh_rate())
+    vga.printf1(@"ADC: %dbits\n\r", mlx.temp_adc_res())
     vga.printf1(@"ADC reference: %s\n\r", lookupz(reftmp: @"High", @"Low  "))
 
     _fx := vga.CENTERX - ((_fw * 16) / 2)       ' Approx center of screen
@@ -179,7 +176,7 @@ PUB setup()
     vga.clear()
     vga.char_attrs(vga.DRAWBG)
 
-    if ( mlx.startx(SCL_PIN, SDA_PIN, I2C_FREQ) )
+    if ( mlx.start() )
         ser.strln(@"MLX90621 driver started")
         mlx.defaults()
         mlx.opmode(mlx.CONT)
@@ -205,42 +202,42 @@ PUB setup_palette() | i, r, g, b, c, d
     repeat i from 0 to vga.MAX_COLOR
         case i
             0..7:                                           ' violet
-                ifnot i // d                                ' Step color only every (d-1)
+                ifnot ( i // d )                                ' Step color only every (d-1)
                     r += 1 <# 3
                     g := 0
                     b += 1 <# 3
             8..15:                                          ' blue
-                ifnot i // d
+                ifnot ( i // d )
                     r -= 1 #> 0
                     g := 0
                     b := b
             16..23:                                         ' cyan
-                ifnot i // d
+                ifnot ( i // d )
                     r := 0
                     g += 1 <# 3
                     b := b
             24..31:                                         ' green
-                ifnot i // d
+                ifnot ( i // d )
                     r := 0
                     g := g
                     b -= 1 #> 0
             32..39:                                         ' yellow
-                ifnot i // d
+                ifnot ( i // d )
                     r += 1 <# 3
                     g := g
                     b := b
             40..47:                                         ' red
-                ifnot i // d
+                ifnot ( i // d )
                     r := r
                     g -= 1 #> 0
                     b := 0
             48..55:                                         ' pink
-                ifnot i // d
+                ifnot ( i // d )
                     r := r
                     g += 1 <# 3
                     b += 1 <# 3
             56..62:                                         ' grey
-                ifnot i // d
+                ifnot ( i // d )
                     r -= 1 #> 0
                     g -= 1 #> 0
                     b -= 1 #> 0

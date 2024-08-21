@@ -1,16 +1,22 @@
 {
-    --------------------------------------------
-    Filename: sensor.thermal-array.mlx90621.spin2
-    Author: Jesse Burt
-    Description: Driver for the Melexis MLX90621 16x4 IR array (P2 version)
-    Copyright (c) 2022
-    started: Dec 2, 2019
-    Updated: Dec 27, 2022
-    See end of file for terms of use.
-    --------------------------------------------
+----------------------------------------------------------------------------------------------------
+    Filename:       sensor.thermal-array.mlx90621.spin2
+    Description:    Driver for the Melexis MLX90621 16x4 IR array
+    Author:         Jesse Burt
+    Started:        Dec 2, 2019
+    Updated:        Aug 21, 2024
+    Copyright (c) 2024 - See end of file for terms of use.
+----------------------------------------------------------------------------------------------------
 }
 
 CON
+
+    {  default I/O settings; these can be overridden in the parent object }
+    SCL             = 0
+    SDA             = 1
+    I2C_FREQ        = 100_000
+    I2C_ADDR        = 0
+
 
     SLAVE_WR        = core.SLAVE_ADDR
     SLAVE_RD        = core.SLAVE_ADDR|1
@@ -88,9 +94,10 @@ CON
 
 OBJ
 
-    core: "core.con.mlx90621"                   ' HW-specific constants
-    i2c : "com.i2c"                             ' I2C engine
-    u64 : "math.unsigned64"                     ' unsigned 64-bit math routines
+    core:   "core.con.mlx90621"                   ' HW-specific constants
+    i2c:    "com.i2c"                             ' I2C engine
+    u64:    "math.unsigned64"                     ' unsigned 64-bit math routines
+
 
 VAR
 
@@ -98,28 +105,38 @@ VAR
     word _ptat
     byte _ee_data[EE_SIZE]
 
+
 PUB null()
 ' This is not a top-level object
 
+
+PUB start(): status
+' Start the driver using default I/O settings
+    return startx(SCL, SDA, I2C_FREQ)
+
+
 PUB startx(SCL_PIN, SDA_PIN, I2C_HZ): status
 ' Start using custom I/O settings
-    if lookdown(SCL_PIN: 0..63) and lookdown(SDA_PIN: 0..63) and {
-}   I2C_HZ <= core.I2C_MAX_FREQ
-        if (status := i2c.init(SCL_PIN, SDA_PIN, core.EE_MAX_FREQ))
+'   SCL_PIN: 0..31
+'   SDA_PIN: 0..31
+'   I2C_HZ: max official is 1_000_000 (unenforced, YMMV!)
+    if ( lookdown(SCL_PIN: 0..63) and lookdown(SDA_PIN: 0..63) )
+        if ( status := i2c.init(SCL_PIN, SDA_PIN, core.EE_MAX_FREQ) )
             waitus(core.T_POR)
-            if i2c.present(core.EE_SLAVE_ADDR)  ' first start I2C engine
-                if (rd_eeprom(0))               '   to read the EEPROM
+            if (i2c.present(core.EE_SLAVE_ADDR))' first start I2C engine
+                if ( rd_eeprom(0) )             '   to read the EEPROM
                     waitms(5)
                     i2c.deinit()
                                                 ' now re-setup for the sensor
                     i2c.init(SCL_PIN, SDA_PIN, I2C_HZ)
                     waitms(5)
-                    if i2c.present(SLAVE_WR)    ' check device bus presence
+                    if (i2c.present(SLAVE_WR))  ' check device bus presence
                         return
     ' if this point is reached, something above failed
     ' Double check I/O pin assignments, connections, power
     ' Lastly - make sure you have at least one free core/cog
     return FALSE
+
 
 PUB stop()
 ' Stop the driver
@@ -128,10 +145,11 @@ PUB stop()
     bytefill(@_ee_data, 0, EE_SIZE)
     _ptat := 0
 
+
 PUB defaults()
 ' Write osc trimming val extracted from EEPROM address $F7
     osc_trim(_ee_data[EE_OSCTRIM])              ' write oscillator trim val from EE
-    writereg(core#CONFIG, _ee_data[EE_CFG])     ' write default configuration from EE
+    writereg(core.CONFIG, _ee_data[EE_CFG])     ' write default configuration from EE
 
 {   The above is the equivalent of calling the following:
     refresh_rate(1)
@@ -143,6 +161,7 @@ PUB defaults()
     adc_ref(ADCREF_LO)
 }
     waitms(5)
+
 
 PUB adc_ref(mode=-2): curr_mode
 ' Set ADC reference high, low
@@ -156,17 +175,17 @@ PUB adc_ref(mode=-2): curr_mode
     case mode
         ADCREF_HI, ADCREF_LO:
             mode := mode << core.ADCHIGHREF
+            mode := ((curr_mode & core.ADCHIGHREF_MASK) | mode)
+            writereg(core.CONFIG, mode)
         other:
             return (curr_mode >> core.ADCHIGHREF) & 1
 
-    mode := ((curr_mode & core.ADCHIGHREF_MASK) | mode)
-    writereg(core.CONFIG, mode)
 
-PUB amb_temp{}: ta | ptat, kt1, kt2, kt1scl, kt2scl, vth25, t1_64[2], t1_32, t2_64[2], t2_32, t3, t3sign
+PUB amb_temp(): ta | ptat, kt1, kt2, kt1scl, kt2scl, vth25, t1_64[2], t1_32, t2_64[2], t2_32, t3, t3sign
 ' Read Proportional To Ambient Temperature sensor
 '   Returns: temperature, in hundredths of a degree Celsius
     ptat := 0
-    readreg(core#PTAT, 1, 0, @ptat)
+    readreg(core.PTAT, 1, 0, @ptat)
 
     { gather coefficients from EEPROM image }
     vth25 := _vth25
@@ -184,30 +203,31 @@ PUB amb_temp{}: ta | ptat, kt1, kt2, kt1scl, kt2scl, vth25, t1_64[2], t1_32, t2_
 
     { Ta = ( (-Kt1 + sqrt(Kt1^2 - 4Kt2 * (Vth(25) - PTAT)) ) / 2Kt2 ) + 25 }
 
-    u64.mult(@t1_64, kt1, kt1)              ' Kt1 ^ 2
+    u64.mult(@t1_64, kt1, kt1)                  ' Kt1 ^ 2
 
-    t2_32 := (4 * kt2)                      ' 4KT2
+    t2_32 := (4 * kt2)                          ' 4KT2
 
-    t3 := (vth25 - ptat)                    ' (Vth(25) - PTAT)
-    if (t3 < 0)                             ' preserve sign for u64 math below
+    t3 := (vth25 - ptat)                        ' (Vth(25) - PTAT)
+    if (t3 < 0)                                 ' preserve sign for u64 math below
         t3sign := -1
     else
         t3sign := 1
 
-    u64.mult(@t2_64, t2_32, abs(t3))         ' u64: 4Kt2 * abs(Vth(25) - PTAT)
+    u64.mult(@t2_64, t2_32, abs(t3))            ' u64: 4Kt2 * abs(Vth(25) - PTAT)
 
     if (t3sign == -1)
-        u64.dadd(@t1_64, t2_64[H], t2_64[L])' Kt1^2 - (Vth(25) - PTAT)
+        u64.dadd(@t1_64, t2_64[H], t2_64[L])    ' Kt1^2 - (Vth(25) - PTAT)
     else
         u64.dsub(@t1_64, t2_64[H], t2_64[L])
     t1_32 := u64.div(t1_64[H], t1_64[L], 1_00)
 
-    t2_32 := sqrt(t1_32) * 10                 ' sqrt(Kt1^2 - 4Kt2 * (Vth(25) - PTAT))
+    t2_32 := sqrt(t1_32) * 10                   ' sqrt(Kt1^2 - 4Kt2 * (Vth(25) - PTAT))
 
-    t3 := (-kt1 + t2_32)                    ' -Kt1 + sqrt(Kt1^2 - 4Kt2 * (Vth(25) - PTAT))
+    t3 := (-kt1 + t2_32)                        ' -Kt1 + sqrt(Kt1^2 - 4Kt2 * (Vth(25) - PTAT))
 
-    t2_32 := (kt2 * 2)                      ' 2Kt2
+    t2_32 := (kt2 * 2)                          ' 2Kt2
     return muldiv64(t3, 100000, t2_32) + 25_00
+
 
 PUB eeprom_ena(state=-2): curr_state
 ' Enable/disable the sensor's built-in EEPROM
@@ -222,11 +242,11 @@ PUB eeprom_ena(state=-2): curr_state
     case abs(state)
         0, 1:
             state := (1-abs(state)) << core.EEPROMENA
+            state := ((curr_state & core.EEPROMENA_MASK) | state)
+            writereg(core.CONFIG, state)
         other:
             return (1-((curr_state >> core.EEPROMENA) & 1)) == 1
 
-    state := ((curr_state & core.EEPROMENA_MASK) | state)
-    writereg(core.CONFIG, state)
 
 PUB refresh_rate = frame_rate
 PUB frame_rate(rate=-2): curr_rate
@@ -239,53 +259,63 @@ PUB frame_rate(rate=-2): curr_rate
     case rate
         0..512:
             rate := (14 - encod(rate))          ' log2(rate) converted to reg value
+            rate := ((curr_rate & core.REFRATE_MASK) | rate)
+            writereg(core.CONFIG, rate)
         other:
             curr_rate &= core.REFRATE_BITS
             return (0 #> decod(13-curr_rate))   ' reg value converted to power of 2
-    rate := ((curr_rate & core.REFRATE_MASK) | rate)
-    writereg(core.CONFIG, rate)
+
 
 PUB get_column(ptr_buff, col) | tmpframe[2], tmp, offs, line
 ' Read a single column of pixels from the sensor into ptr_buff
 '   NOTE This buffer must be at least 4 longs
-    ifnot lookdown(col: 0..15)
+    ifnot ( lookdown(col: 0..15) )
         return
 
+    longfill(@tmpframe, 0, 2)
     readreg(col * 4, 4, 1, @tmpframe)
     repeat line from 0 to YMAX
         offs := (col * 4) + line
-        long[ptr_buff][tmp] := tmpframe.word[offs] signx 15
+        long[ptr_buff][offs] := tmpframe.word[offs] signx 15
+
 
 PUB get_frame(ptr_buff) | tmpframe[32], offs
 ' Read entire frame from sensor and store it in buffer at ptr_buff
 '   NOTE: This buffer must be at least 64 longs
+    longfill(@tmpframe, 0, 32)
     readreg(0, 64, 1, @tmpframe)
     repeat offs from 0 to 63
         long[ptr_buff][offs] := tmpframe.word[offs] signx 15
+
 
 PUB get_frame_ext(ptr_buff) | tmpframe[33], offs, line, col
 ' Read entire frame, as well as PTAT and compensation pixel data from sensor and stores it in
 '   buffer at ptr_buff
 '   NOTE: This buffer must be at least 66 longs
+    longfill(@tmpframe, 0, 33)
     readreg(0, 66, 1, @tmpframe)
     repeat offs from 0 to 65
         long[ptr_buff][offs] := tmpframe.word[offs] signx 15
     _PTAT := tmpframe[RAM_OFFS_PTAT]            ' Get PTAT data
 
+
 PUB get_line(ptr_buff, line) | tmpframe[8], offs, col
 ' Read a single line of pixels from the sensor into ptr_buff
 '   NOTE: This buffer must be at least 16 longs
-    if not lookdown(line: 0..3)
+    ifnot ( lookdown(line: 0..3) )
         return
+
+    longfill(@tmpframe, 0, 8)
     readreg(line, 16, 4, @tmpframe)
     repeat col from 0 to XMAX
         offs := (col * 4) + line
         long[ptr_buff][offs] := tmpframe.word[offs] signx 15
 
+
 PUB get_pixel(ptr_buff, col, line): pix_word | tmpframe, offs
 ' Read a single pixel from the sensor into ptr_buff
 '   Returns: pixel value
-'   NOTE: This buffer must be at least 1 longs
+'   NOTE: This buffer must be at least 1 long
     case col
         0..XMAX:
         other:
@@ -297,22 +327,25 @@ PUB get_pixel(ptr_buff, col, line): pix_word | tmpframe, offs
             return
 
     offs := (col * 4) + line                    ' offset within array image
-
+    tmpframe := 0
     readreg(offs, 1, 0, @tmpframe)
     long[ptr_buff][offs] := pix_word := tmpframe.word[0] signx 15
 
-PUB is_reset{}: flag
+
+PUB is_reset(): flag
 ' Flag indicating POR or brown-out occurred
 '   Returns: TRUE (-1) or FALSE (0)
     flag := 0
-    readreg(core#CONFIG, 2, 0, @flag)
-    return (((flag >> core#RESET) & 1) == 0)
+    readreg(core.CONFIG, 2, 0, @flag)
+    return (((flag >> core.RESET) & 1) == 0)
+
 
 PUB measure()
 ' Perform measurement, when opmode() is set to SINGLE
 '   NOTE: This method waits/blocks while a measurement is ongoing
     writereg(core.CMD_STEP_MEASURE, 0)
     repeat while measuring()
+
 
 PUB measuring(): flag
 ' Flag indicating a measurement is running
@@ -322,6 +355,7 @@ PUB measuring(): flag
 '   NOTE: This method is intended for use when opmode() is set to SINGLE
     readreg(core.CONFIG, 2, 0, @flag)
     return ((flag >> core.MEASURING) & 1) == 1
+
 
 PUB opmode(mode=-2): curr_mode
 ' Set measurement mode
@@ -335,11 +369,11 @@ PUB opmode(mode=-2): curr_mode
     case mode
         CONT, SINGLE:
             mode := (mode << core.MEASMODE)
+            mode := ((curr_mode & core.MEASMODE_MASK) | mode)
+            writereg(core.CONFIG, mode)
         other:
             return (curr_mode >> core.MEASMODE) & 1
 
-    mode := ((curr_mode & core.MEASMODE_MASK) | mode)
-    writereg(core.CONFIG, mode)
 
 PUB osc_trim(val=-2): curr_val
 ' Set Oscillator Trim value
@@ -355,6 +389,7 @@ PUB osc_trim(val=-2): curr_val
             readreg(core.OSC_TRIM, 1, 0, @curr_val)
             return curr_val & core.OSC_TRIM_MASK
 
+
 PUB powered(state=-2): curr_state
 ' Power on sensor
 '   Valid values:
@@ -367,11 +402,11 @@ PUB powered(state=-2): curr_state
         0, 1:
             ' chip logic is reversed, so flip the bit
             state := (abs(state) ^ 1) << core.OPMODE
+            state := ((curr_state & core.OPMODE_MASK) | state)
+            writereg(core.CONFIG, state)
         other:
             return (((curr_state >> core.OPMODE) & 1) ^ 1)
 
-    state := ((curr_state & core.OPMODE_MASK) | state)
-    writereg(core.CONFIG, state)
 
 PUB rd_eeprom(ptr_buff): status | ackbit, tries
 ' Read sensor EEPROM contents into RAM
@@ -383,24 +418,24 @@ PUB rd_eeprom(ptr_buff): status | ackbit, tries
     tries := 0
 
     { make three attempts to talk to the sensor's EEPROM }
-    i2c.start{}
+    i2c.start()
     repeat
-        ackbit := i2c.write(core#EE_SLAVE_ADDR)
+        ackbit := i2c.write(core.EE_SLAVE_ADDR)
         if (++tries > 3)
-            i2c.stop{}
+            i2c.stop()
             return FALSE                        ' no response - give up
-    until (ackbit == i2c#ACK)
+    until (ackbit == i2c.ACK)
     i2c.write($00)
 
-    i2c.start{}                                 ' Read in the EEPROM
+    i2c.start()                                 ' Read in the EEPROM
     repeat
-        ackbit := i2c.write(core#EE_SLAVE_ADDR|1)
+        ackbit := i2c.write(core.EE_SLAVE_ADDR|1)
         if (++tries > 3)
-            i2c.stop{}
+            i2c.stop()
             return FALSE
-    until (ackbit == i2c#ACK)
-    i2c.rdblock_lsbf(@_ee_data, EE_SIZE, i2c#NAK)
-    i2c.stop{}
+    until (ackbit == i2c.ACK)
+    i2c.rdblock_lsbf(@_ee_data, EE_SIZE, i2c.NAK)
+    i2c.stop()
 
     _adcres_bits := (1 << (3-lookdownz(temp_adc_res(-2): 15, 16, 17, 18)) )
 
@@ -419,6 +454,7 @@ PUB rd_eeprom(ptr_buff): status | ackbit, tries
         bytemove(ptr_buff, @_ee_data, EE_SIZE)
     return TRUE
 
+
 PUB temp_adc_res(bits=-2): curr_res
 ' Set ADC resolution, in bits
 '   Valid values: 15..18 (default: 18)
@@ -429,12 +465,12 @@ PUB temp_adc_res(bits=-2): curr_res
         15..18:
             _adcres_bits := (1 << (3-lookdownz(bits: 15, 16, 17, 18)) )
             bits := lookdownz(bits: 15, 16, 17, 18) << core.ADCRES
+            bits := ((curr_res & core.ADCRES_MASK) | bits)
+            writereg(core.CONFIG, bits)
         other:
             curr_res := (curr_res >> core.ADCRES) & core.ADCRES_BITS
             return lookupz(curr_res: 15, 16, 17, 18)
 
-    bits := ((curr_res & core.ADCRES_MASK) | bits)
-    writereg(core.CONFIG, bits)
 
 PRI i2cfm(mode=-2): curr_mode
 ' Enable I2C Fast Mode+
@@ -449,11 +485,11 @@ PRI i2cfm(mode=-2): curr_mode
     case abs(mode)
         0, 1:
             mode := (1-(abs(mode))) << core.I2CFMP
+            mode := ((curr_mode & core.I2CFMP_MASK) | mode)
+            writereg(core.CONFIG, curr_mode)
         other:
             return (1-((curr_mode >> core.I2CFMP) & 1)) == 1
 
-    mode := ((curr_mode & core.I2CFMP_MASK) | mode)
-    writereg(core.CONFIG, curr_mode)
 
 PRI readreg(reg_nr, nr_reads, rd_step, ptr_buff) | cmd_pkt[2]
 ' Read nr_reads from device into ptr_buff
@@ -481,12 +517,13 @@ PRI readreg(reg_nr, nr_reads, rd_step, ptr_buff) | cmd_pkt[2]
     i2c.rdblock_lsbf(ptr_buff, nr_reads, i2c.NAK)
     i2c.stop()
 
+
 PRI writereg(reg_nr, val) | cmd_pkt[2], nr_bytes
 ' Write val to device
     cmd_pkt.byte[0] := SLAVE_WR
     case reg_nr
         core.CONFIG:
-            val |= core#RESET_UPD               ' RESET bit must be set when updating CONFIG
+            val |= core.RESET_UPD               ' RESET bit must be set when updating CONFIG
             cmd_pkt.byte[1] := core.CMD_WRITEREG_CFG
             cmd_pkt.byte[2] := val.byte[0] - CFG_CKBYTE
             cmd_pkt.byte[3] := val.byte[0]
@@ -511,9 +548,10 @@ PRI writereg(reg_nr, val) | cmd_pkt[2], nr_bytes
     i2c.wrblock_lsbf(@cmd_pkt, nr_bytes)
     i2c.stop()
 
+
 DAT
 {
-Copyright 2022 Jesse Burt
+Copyright 2024 Jesse Burt
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
 associated documentation files (the "Software"), to deal in the Software without restriction,

@@ -34,10 +34,10 @@ P2/SPIN2:
 
 | Processor | Language | Compiler               | Backend      | Status                |
 |-----------|----------|------------------------|--------------|-----------------------|
-| P1        | SPIN1    | FlexSpin (6.8.0)       | Bytecode     | OK                    |
-| P1        | SPIN1    | FlexSpin (6.8.0)       | Native/PASM  | OK                    |
-| P2        | SPIN2    | FlexSpin (6.8.0)       | NuCode       | Build OK              |
-| P2        | SPIN2    | FlexSpin (6.8.0)       | Native/PASM2 | OK                    |
+| P1        | SPIN1    | FlexSpin (6.9.4)       | Bytecode     | OK                    |
+| P1        | SPIN1    | FlexSpin (6.9.4)       | Native/PASM  | OK                    |
+| P2        | SPIN2    | FlexSpin (6.9.4)       | NuCode       | Build OK              |
+| P2        | SPIN2    | FlexSpin (6.9.4)       | Native/PASM2 | OK                    |
 
 
 ## Limitations
